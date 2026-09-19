@@ -66,7 +66,6 @@ bot.on('message', async (ctx) => {
             const isMinus = replyText.startsWith('-');
 
             if (isPlus || isMinus) {
-                // Агар топшириқ аллақачон ёпилган бўлса ёки ёзган одам админ бўлмаса
                 const adminCheck = await isAdmin(ctx);
                 if (task.status === 'closed' || !adminCheck) {
                     await ctx.deleteMessage().catch(() => {});
@@ -193,8 +192,8 @@ bot.on('message', async (ctx) => {
         const adminMention = `<a href="tg://user?id=${ctx.from.id}">${safeAdminName}</a>`;
         const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-        // --- ВАҚТНИ АЖРАТИБ ОЛИШ (Муддат: 18:00) ---
-        const timeMatch = text.match(/(?:muddat|муддат)\s*[:\-]?\s*(\d{1,2})[:\.](\d{2})/i);
+        // --- ВАҚТНИ АЖРАТИБ ОЛИШ (Тошкент вақти ва хоҳланган формат учун созланган) ---
+        const timeMatch = text.match(/(?:(?:muddat|муддат)\s*[:\-]?\s*)?(\d{1,2})[:\.](\d{2})/i);
         let deadlineTimestamp = null;
         let deadlineString = null;
 
@@ -202,9 +201,12 @@ bot.on('message', async (ctx) => {
             const hours = parseInt(timeMatch[1]);
             const minutes = parseInt(timeMatch[2]);
             const now = new Date();
-            const deadlineDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
             
-            if (deadlineDate.getTime() < now.getTime()) {
+            // Server Frankfurt (UTC) da ishlagani uchun Toshkent vaqtini (+5 soat) to'g'ri hisoblaymiz
+            const deadlineDate = new Date();
+            deadlineDate.setUTCHours(hours - 5, minutes, 0, 0);
+            
+            if (deadlineDate.getTime() <= now.getTime()) {
                 deadlineDate.setDate(deadlineDate.getDate() + 1);
             }
             
@@ -343,7 +345,7 @@ bot.action('yopish', async (ctx) => {
 });
 
 // ==========================================
-// 3. АВТОМАТИК ЕСЛАТМА ТАЙМЕРИ
+// 3. АВТОМАТИК ЕСЛАТМА ТАЙМЕРИ (Кучайтирилган)
 // ==========================================
 setInterval(() => {
     const db = readDB();
@@ -355,7 +357,9 @@ setInterval(() => {
         const task = db.tasks[taskId];
         
         if (task.status === 'open' && task.deadline && !task.reminderSent) {
-            if (task.deadline - now <= ONE_HOUR && task.deadline > now) {
+            const timeLeft = task.deadline - now;
+            
+            if (timeLeft <= ONE_HOUR && timeLeft > 0) {
                 task.reminderSent = true;
                 dbChanged = true;
 
@@ -371,7 +375,7 @@ setInterval(() => {
     }
     
     if (dbChanged) writeDB(db);
-}, 60000);
+}, 30000);
 
 bot.launch().then(() => {
     console.log("Bot muvaffaqiyatli ishga tushdi...");
