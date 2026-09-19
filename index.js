@@ -2,6 +2,18 @@ require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+
+// ==========================================
+// RENDER PORT TALABINI QONDIRISH (Web Service)
+// ==========================================
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running and alive!\n');
+}).listen(PORT, () => {
+    console.log(`Server is listening on port ${PORT}`);
+});
 
 const dbPath = path.join(__dirname, 'database.json');
 
@@ -331,7 +343,7 @@ bot.action('yopish', async (ctx) => {
 });
 
 // ==========================================
-// 3. АВТОМАТИК ЭСЛАТМА ТАЙМЕРИ
+// 3. АВТОМАТИК ЕСЛАТМА ТАЙМЕРИ
 // ==========================================
 setInterval(() => {
     const db = readDB();

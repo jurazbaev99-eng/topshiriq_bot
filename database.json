@@ -113,6 +113,23 @@
           "status": "tanishdi"
         }
       }
+    },
+    "-1004492245459_48": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "muddat 20:23",
+      "status": "open",
+      "hasMedia": true,
+      "deadline": 1789831380000,
+      "deadlineString": "20:23",
+      "reminderSent": true,
+      "users": {
+        "5560972524": {
+          "name": "shagzad",
+          "username": null,
+          "status": "tanishdi"
+        }
+      }
     }
   }
 }
