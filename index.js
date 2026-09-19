@@ -41,7 +41,7 @@ async function isAdmin(ctx) {
 bot.on('message', async (ctx) => {
     
     // ==========================================
-    // 1. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ (+ @тэг ёки + 1)
+    // 1. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ (+ ёки -)
     // ==========================================
     if (ctx.message.reply_to_message && ctx.message.text) {
         const replyText = ctx.message.text.trim();
@@ -49,11 +49,22 @@ bot.on('message', async (ctx) => {
         const db = readDB();
         const task = db.tasks[taskId];
 
-        if (task && ctx.from.id === task.adminId && task.status !== 'closed') {
+        if (task) {
             const isPlus = replyText.startsWith('+');
             const isMinus = replyText.startsWith('-');
 
             if (isPlus || isMinus) {
+                // Агар топшириқ аллақачон ёпилган бўлса ёки ёзган одам админ бўлмаса
+                const adminCheck = await isAdmin(ctx);
+                if (task.status === 'closed' || !adminCheck) {
+                    await ctx.deleteMessage().catch(() => {});
+                    if (task.status === 'closed') {
+                        const warn = await ctx.reply("❌ Бу топшириқ ёпилган, энди ўзгартириб бўлмайди!");
+                        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, warn.message_id).catch(() => {}), 3000);
+                    }
+                    return;
+                }
+
                 let targetUserId = null;
 
                 if (ctx.message.entities) {
@@ -181,7 +192,6 @@ bot.on('message', async (ctx) => {
             const now = new Date();
             const deadlineDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
             
-            // Агар кўрсатилган вақт ўтиб кетган бўлса (масалан эрталаб бериляпти, муддат эртага бўлса)
             if (deadlineDate.getTime() < now.getTime()) {
                 deadlineDate.setDate(deadlineDate.getDate() + 1);
             }
@@ -218,9 +228,9 @@ bot.on('message', async (ctx) => {
             text: safeText,
             status: 'open',
             hasMedia: hasMedia,
-            deadline: deadlineTimestamp,       // Вақтни базага сақлаш
-            deadlineString: deadlineString,    // Вақт матни (эслатмада кўрсатиш учун)
-            reminderSent: false,               // Эслатма юборилдими йўқми
+            deadline: deadlineTimestamp,
+            deadlineString: deadlineString,
+            reminderSent: false,
             users: {} 
         };
         writeDB(db);
@@ -321,7 +331,7 @@ bot.action('yopish', async (ctx) => {
 });
 
 // ==========================================
-// 3. АВТОМАТИК ЭСЛАТМА ТАЙМЕРИ (Ҳар дақиқада текширади)
+// 3. АВТОМАТИК ЭСЛАТМА ТАЙМЕРИ
 // ==========================================
 setInterval(() => {
     const db = readDB();
@@ -332,23 +342,16 @@ setInterval(() => {
     for (const taskId in db.tasks) {
         const task = db.tasks[taskId];
         
-        // Агар топшириқ ёпилмаган бўлса, муддати белгиланган бўлса ва ҳали эслатма юборилмаган бўлса
         if (task.status === 'open' && task.deadline && !task.reminderSent) {
-            
-            // Вақт тугашига роппа-роса 1 соат (ёки ундан камроқ) қолганини текшириш
             if (task.deadline - now <= ONE_HOUR && task.deadline > now) {
                 task.reminderSent = true;
                 dbChanged = true;
 
-                // Топшириқ билан танишган, лекин ҳали "бажарди" қилинмаган ходимларга хабар жўнатиш
                 for (const uid in task.users) {
                     if (task.users[uid].status === 'tanishdi') {
                         const msg = `⚠️ <b>ЭСЛАТМА!</b>\n\nСизда бажарилмаган вазифа бор. Муддат тугашига <b>1 соат</b> қолди!\n\n📝 <b>Вазифа:</b> ${task.text}\n⏱ <b>Муддат:</b> ${task.deadlineString}`;
                         
-                        // Шахсий личкасига жўнатиш
-                        bot.telegram.sendMessage(uid, msg, { parse_mode: 'HTML' }).catch(() => {
-                            // Бу ерда хатолик бўлса (масалан, ходим ботга /start босмаган бўлса), бот ишлашдан тўхтамайди
-                        });
+                        bot.telegram.sendMessage(uid, msg, { parse_mode: 'HTML' }).catch(() => {});
                     }
                 }
             }
@@ -356,7 +359,7 @@ setInterval(() => {
     }
     
     if (dbChanged) writeDB(db);
-}, 60000); // 60000 миллисония = 1 дақиқа
+}, 60000);
 
 bot.launch().then(() => {
     console.log("Bot muvaffaqiyatli ishga tushdi...");
