@@ -1,0 +1,118 @@
+{
+  "tasks": {
+    "-1004492245459_9": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "muddat 18.00",
+      "status": "open",
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "status": "tanishdi"
+        },
+        "5560972524": {
+          "name": "shagzad",
+          "status": "tanishdi"
+        }
+      }
+    },
+    "-1004492245459_11": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "muddat 18.00",
+      "status": "open",
+      "hasMedia": true,
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "status": "tanishdi"
+        }
+      }
+    },
+    "-1004492245459_14": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "Бириктирилган хабар/файл бўйича топшириқ.",
+      "status": "closed",
+      "hasMedia": true,
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "status": "tanishdi"
+        },
+        "5560972524": {
+          "name": "shagzad",
+          "status": "tanishdi"
+        }
+      }
+    },
+    "-1004492245459_16": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "muddat 18.00",
+      "status": "open",
+      "hasMedia": true,
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "username": null,
+          "status": "bajarildi"
+        },
+        "5560972524": {
+          "name": "shagzad",
+          "username": null,
+          "status": "bajarildi"
+        }
+      }
+    },
+    "-1004492245459_22": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "muddat 18:00",
+      "status": "open",
+      "hasMedia": true,
+      "deadline": 1789822800000,
+      "deadlineString": "18:00",
+      "reminderSent": true,
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "username": null,
+          "status": "tanishdi"
+        },
+        "5560972524": {
+          "name": "shagzad",
+          "username": null,
+          "status": "tanishdi"
+        }
+      }
+    },
+    "-1004492245459_25": {
+      "adminId": 7470599966,
+      "adminMention": "<a href=\"tg://user?id=7470599966\">Jasur Urazbaev</a>",
+      "text": "ishlash kerak muddat 18:15",
+      "status": "open",
+      "hasMedia": true,
+      "deadline": 1789823700000,
+      "deadlineString": "18:15",
+      "reminderSent": true,
+      "users": {
+        "1393800910": {
+          "name": "Айжамал",
+          "username": null,
+          "status": "bajarildi"
+        },
+        "5217298387": {
+          "name": "Anonim",
+          "username": "botkons",
+          "status": "tanishdi"
+        },
+        "5560972524": {
+          "name": "shagzad",
+          "username": null,
+          "status": "tanishdi"
+        }
+      }
+    }
+  }
+}
