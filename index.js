@@ -55,7 +55,7 @@ async function isAdmin(ctx) {
 }
 
 // ==========================================
-// 4. GEMINI BILAN SUHBAT (/chat)
+// 4. GEMINI BILAN SUHBAT (/chat) - Xatolikni aniq chiqaruvchi versiya
 // ==========================================
 bot.command('chat', async (ctx) => {
     const userText = ctx.message.text.replace('/chat', '').trim();
@@ -67,7 +67,6 @@ bot.command('chat', async (ctx) => {
     const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        // Model nomi gemini-1.5-flash ga yanglandi
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
         const result = await model.generateContent(userText);
@@ -76,8 +75,9 @@ bot.command('chat', async (ctx) => {
         await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, replyText);
         
     } catch (error) {
-        console.error("Gemini xatosi:", error);
-        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, "Кечирасиз, Gemini билан уланишда хатолик юз берди 😔");
+        console.error("Gemini to'liq xatoligi:", error);
+        // Telegramda aniq qanday xatolik kelganini ko'rsatamiz
+        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `❌ Gemini xatosi: ${error.message}`);
     }
 });
 
