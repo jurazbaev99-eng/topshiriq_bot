@@ -389,4 +389,27 @@ setInterval(() => {
         if (task.status === 'open' && task.deadline && !task.reminderSent) {
             const timeLeft = task.deadline - now;
             
-            ... (davomi pastda) 
+            if (timeLeft <= ONE_HOUR && timeLeft > 0) {
+                task.reminderSent = true;
+                dbChanged = true;
+
+                for (const uid in task.users) {
+                    if (task.users[uid].status === 'tanishdi') {
+                        const msg = `⚠️ <b>ЭСЛАТМА!</b>\n\nСизда бажарилмаган вазифа бор. Муддат тугашига <b>1 соат</b> қолди!\n\n📝 <b>Вазифа:</b> ${task.text}\n⏱ <b>Муддат:</b> ${task.deadlineString}`;
+                        
+                        bot.telegram.sendMessage(uid, msg, { parse_mode: 'HTML' }).catch(() => {});
+                    }
+                }
+            }
+        }
+    }
+    
+    if (dbChanged) writeDB(db);
+}, 30000);
+
+bot.launch().then(() => {
+    console.log("Bot muvaffaqiyatli ishga tushdi...");
+});
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
