@@ -424,7 +424,10 @@ setInterval(() => {
     if (dbChanged) writeDB(db);
 }, 30000);
 
-bot.launch().then(() => {
+// Eski ochiq ulanishlarni uzib yuborish uchun dropPendingUpdates qo'shildi
+bot.launch({
+    dropPendingUpdates: true
+}).then(() => {
     console.log("Bot muvaffaqiyatli ishga tushdi...");
 });
 
