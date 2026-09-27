@@ -55,7 +55,7 @@ async function isAdmin(ctx) {
 }
 
 // ==========================================
-// 4. GEMINI BILAN SUHBAT (/chat) - Xatolikni aniq chiqaruvchi versiya
+// 4. GEMINI BILAN SUHBAT (/chat) - gemini-pro modeli
 // ==========================================
 bot.command('chat', async (ctx) => {
     const userText = ctx.message.text.replace('/chat', '').trim();
@@ -67,7 +67,8 @@ bot.command('chat', async (ctx) => {
     const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Model gemini-pro ga o'zgartirildi
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         
         const result = await model.generateContent(userText);
         const replyText = result.response.text();
@@ -76,7 +77,6 @@ bot.command('chat', async (ctx) => {
         
     } catch (error) {
         console.error("Gemini to'liq xatoligi:", error);
-        // Telegramda aniq qanday xatolik kelganini ko'rsatamiz
         await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `❌ Gemini xatosi: ${error.message}`);
     }
 });
@@ -389,27 +389,4 @@ setInterval(() => {
         if (task.status === 'open' && task.deadline && !task.reminderSent) {
             const timeLeft = task.deadline - now;
             
-            if (timeLeft <= ONE_HOUR && timeLeft > 0) {
-                task.reminderSent = true;
-                dbChanged = true;
-
-                for (const uid in task.users) {
-                    if (task.users[uid].status === 'tanishdi') {
-                        const msg = `⚠️ <b>ЭСЛАТМА!</b>\n\nСизда бажарилмаган вазифа бор. Муддат тугашига <b>1 соат</b> қолди!\n\n📝 <b>Вазифа:</b> ${task.text}\n⏱ <b>Муддат:</b> ${task.deadlineString}`;
-                        
-                        bot.telegram.sendMessage(uid, msg, { parse_mode: 'HTML' }).catch(() => {});
-                    }
-                }
-            }
-        }
-    }
-    
-    if (dbChanged) writeDB(db);
-}, 30000);
-
-bot.launch().then(() => {
-    console.log("Bot muvaffaqiyatli ishga tushdi...");
-});
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+            ... (davomi pastda) 
