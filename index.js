@@ -55,7 +55,7 @@ async function isAdmin(ctx) {
 }
 
 // ==========================================
-// 4. GEMINI BILAN SUHBAT (/chat) - gemini-pro modeli
+// 4. GEMINI BILAN SUHBAT (/chat) - Fetch orqali to'g'ridan-to'g'ri ishonchli ulanish
 // ==========================================
 bot.command('chat', async (ctx) => {
     const userText = ctx.message.text.replace('/chat', '').trim();
@@ -67,17 +67,34 @@ bot.command('chat', async (ctx) => {
     const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        // Model gemini-pro ga o'zgartirildi
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        
-        const result = await model.generateContent(userText);
-        const replyText = result.response.text();
+        const apiKey = process.env.GEMINI_API_KEY;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, replyText);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ text: userText }]
+                }]
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+            const replyText = data.candidates[0].content.parts[0].text;
+            await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, replyText);
+        } else {
+            console.error("Gemini API javobi:", data);
+            await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, "Кечирасиз, Gemini жавоб қайтаришда хатолик берди 😔");
+        }
         
     } catch (error) {
-        console.error("Gemini to'liq xatoligi:", error);
-        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `❌ Gemini xatosi: ${error.message}`);
+        console.error("Gemini ulanish xatosi:", error);
+        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, "Кечирасиз, Gemini билан уланишда хатолик юз берди 😔");
     }
 });
 
