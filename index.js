@@ -67,8 +67,8 @@ bot.command('chat', async (ctx) => {
     const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        // Модель номи gemini-pro га ўзгартирилди
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        // Model nomi gemini-1.5-flash ga yanglandi
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
         const result = await model.generateContent(userText);
         const replyText = result.response.text();
