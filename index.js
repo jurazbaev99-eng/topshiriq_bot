@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // 1. Gemini kutubxonasi ulandi
+const { GoogleGenerativeAI } = require('@google/generative-ai'); 
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -33,7 +33,7 @@ const writeDB = (data) => {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// 2. Google Gemini API kalitini ulash
+// Google Gemini API kalitini ulash
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 bot.start((ctx) => {
@@ -55,7 +55,7 @@ async function isAdmin(ctx) {
 }
 
 // ==========================================
-// 4. GEMINI BILAN SUHBAT (/chat) - YANGI QO'SHILGAN QISM
+// 4. GEMINI BILAN SUHBAT (/chat)
 // ==========================================
 bot.command('chat', async (ctx) => {
     const userText = ctx.message.text.replace('/chat', '').trim();
@@ -67,7 +67,8 @@ bot.command('chat', async (ctx) => {
     const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Модель номи gemini-pro га ўзгартирилди
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         
         const result = await model.generateContent(userText);
         const replyText = result.response.text();
@@ -222,7 +223,7 @@ bot.on('message', async (ctx) => {
         const adminMention = `<a href="tg://user?id=${ctx.from.id}">${safeAdminName}</a>`;
         const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-        // --- ВАҚТНИ АЖРАТИБ ОЛИШ (Тошкент вақти ва хоҳланган формат учун созланган) ---
+        // --- ВАҚТНИ АЖРАТИБ ОЛИШ ---
         const timeMatch = text.match(/(?:(?:muddat|муддат)\s*[:\-]?\s*)?(\d{1,2})[:\.](\d{2})/i);
         let deadlineTimestamp = null;
         let deadlineString = null;
@@ -232,7 +233,6 @@ bot.on('message', async (ctx) => {
             const minutes = parseInt(timeMatch[2]);
             const now = new Date();
             
-            // Server Frankfurt (UTC) da ishlagani uchun Toshkent vaqtini (+5 soat) to'g'ri hisoblaymiz
             const deadlineDate = new Date();
             deadlineDate.setUTCHours(hours - 5, minutes, 0, 0);
             
@@ -375,7 +375,7 @@ bot.action('yopish', async (ctx) => {
 });
 
 // ==========================================
-// 3. АВТОМАТИК ЕСЛАТМА ТАЙМЕРИ (Кучайтирилган)
+// 3. АВТОМАТИК ЕСЛАТМА ТАЙМЕРИ
 // ==========================================
 setInterval(() => {
     const db = readDB();
