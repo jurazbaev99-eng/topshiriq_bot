@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
-const { OpenAI } = require('openai'); // 1. OpenAI kutubxonasi qo'shildi
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // 1. Gemini kutubxonasi ulandi
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -33,10 +33,8 @@ const writeDB = (data) => {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// 2. OpenAI API kalitini ulash
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+// 2. Google Gemini API kalitini ulash
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 bot.start((ctx) => {
     if (ctx.chat.type === 'private') {
@@ -57,7 +55,7 @@ async function isAdmin(ctx) {
 }
 
 // ==========================================
-// 4. CHATGPT BILAN SUHBAT (/chat) - YANGI QO'SHILGAN QISM
+// 4. GEMINI BILAN SUHBAT (/chat) - YANGI QO'SHILGAN QISM
 // ==========================================
 bot.command('chat', async (ctx) => {
     const userText = ctx.message.text.replace('/chat', '').trim();
@@ -66,21 +64,19 @@ bot.command('chat', async (ctx) => {
         return ctx.reply("Илтимос, /chat буйруғидан сўнг саволингизни ёзинг.\nМисол: /chat менга ариза матни тайёрлаб бер.");
     }
 
-    const waitMsg = await ctx.reply("⏳ Ўйламоқдаман...");
+    const waitMsg = await ctx.reply("⏳ Ўйламоқдаман (Gemini)...");
 
     try {
-        const completion = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo", 
-            messages: [{ role: "user", content: userText }],
-        });
-
-        const replyText = completion.choices[0].message.content;
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        const result = await model.generateContent(userText);
+        const replyText = result.response.text();
 
         await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, replyText);
         
     } catch (error) {
-        console.error("OpenAI xatosi:", error);
-        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, "Кечирасиз, ChatGPT билан уланишда хатолик юз берди 😔");
+        console.error("Gemini xatosi:", error);
+        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, "Кечирасиз, Gemini билан уланишда хатолик юз берди 😔");
     }
 });
 
