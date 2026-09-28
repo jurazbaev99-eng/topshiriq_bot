@@ -29,7 +29,7 @@ const DEFAULT_USERS = [
     { name: "Qurbaniyazov Qayrat", username: "qurbaniyazovqayrat" },
     { name: "Ergash Jumaniyazov", username: "jumaniyazovergash" },
     { name: "Saraykol OFY", username: "taxiyatosh_tumani_saraykol_ofy" },
-    { name: "Atabek Saburov", username: null },
+    { name: "Atabek Saburov", username: null, fixedKey: "atabek_saburov" },
     { name: "Nurbek Tajibayev", username: "nurbek_tajibayev" },
     { name: "Jasur Urazbaev", username: "jasururazbaev" },
     { name: "Nilufar Muxammedova", username: "nilufarrmuxammedova" }
@@ -55,7 +55,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start((ctx) => {
     if (ctx.chat.type === 'private') {
-        ctx.reply("Ассалому алайкум! Топшириқлар ботига уландингиз.\n\nЭнди гуруҳдаги муҳим вазифалар бўйича эслатмалар шу ерга келиб туради!");
+        ctx.reply("Ассалому алайкум! Топшириқлар ботига уландингиз.");
     } else {
         ctx.reply("Ассалому алайкум! Топшириқлар ботига хуш келибсиз.");
     }
@@ -71,7 +71,6 @@ async function isAdmin(ctx) {
     }
 }
 
-// Статус матнини генерация қилиш (3 хил статус)
 function generateUserList(taskUsers) {
     let userList = "";
     let count = 1;
@@ -105,6 +104,49 @@ const addScore = (username, name, points) => {
     writeDB(db);
 };
 
+// Лидербоард матнини тайёрлаб берадиган функция
+function createLeaderboardText(statsObj) {
+    const statsArr = Object.values(statsObj || {});
+    if (statsArr.length === 0) {
+        return "📊 Ҳозирча ҳеч ким балл тўпламади.";
+    }
+
+    statsArr.sort((a, b) => b.score - a.score);
+
+    const top3 = statsArr.slice(0, 3);
+    const antiTop3 = statsArr.slice(-3).reverse();
+
+    let report = `🏆 <b>ҲАФТАЛИК РЕЙТИНГ ЖАДВАЛИ (ТОП & АНТИ-ТОП)</b>\n\n`;
+    
+    report += `🥇 <b>Энг фаол ва топшириқларни бажарганлар:</b>\n`;
+    top3.forEach((item, idx) => {
+        report += `${idx + 1}. ${item.name} — ${item.score} балл (${item.completed} та бажарилган)\n`;
+    });
+
+    report += `\n📉 <b>Энг паст кўрсаткичга эга бўлганлар:</b>\n`;
+    antiTop3.forEach((item, idx) => {
+        report += `${idx + 1}. ${item.name} — ${item.score} балл\n`;
+    });
+
+    return report;
+}
+
+// ==========================================
+// АДМИН УЧУН МАХСУС /reyting КОМАНДАСИ
+// ==========================================
+bot.command(['reyting', 'leaderboard', 'rating'], async (ctx) => {
+    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ фақат гуруҳларда ишлайди.");
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+        return ctx.reply("Кечирасиз, рейтингни фақат гуруҳ админлари чақира олади.");
+    }
+
+    const db = readDB();
+    const report = createLeaderboardText(db.stats);
+    await ctx.reply(report, { parse_mode: 'HTML' });
+});
+
 bot.on('message', async (ctx) => {
     
     // ==========================================
@@ -117,10 +159,9 @@ bot.on('message', async (ctx) => {
         let task = db.tasks[taskId];
 
         if (!task) {
-            // Агар базада топилмаса, тиклаб олиш
             let taskUsers = {};
             DEFAULT_USERS.forEach((usr) => {
-                const uniqueKey = usr.username ? usr.username.toLowerCase() : usr.name;
+                const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
                 taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
             });
             task = {
@@ -144,10 +185,11 @@ bot.on('message', async (ctx) => {
                 let targetKey = null;
                 const authorId = ctx.message.reply_to_message.from.id.toString();
                 const authorUsername = ctx.message.reply_to_message.from.username ? ctx.message.reply_to_message.from.username.toLowerCase() : null;
+                const authorName = ctx.message.reply_to_message.from.first_name.toLowerCase();
 
                 for (const key in task.users) {
                     const u = task.users[key];
-                    if (key === authorId || (authorUsername && u.username && u.username.toLowerCase() === authorUsername)) {
+                    if (key === authorId || (authorUsername && u.username && u.username.toLowerCase() === authorUsername) || u.name.toLowerCase().includes(authorName)) {
                         targetKey = key;
                         break;
                     }
@@ -272,7 +314,7 @@ bot.on('message', async (ctx) => {
 
         let taskUsers = {};
         DEFAULT_USERS.forEach((usr) => {
-            const uniqueKey = usr.username ? usr.username.toLowerCase() : usr.name;
+            const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
             taskUsers[uniqueKey] = {
                 name: usr.name,
                 username: usr.username,
@@ -331,10 +373,9 @@ bot.action('tanishdim', async (ctx) => {
     let task = db.tasks[taskId];
 
     if (!task) {
-        // Агар базада топилмаса, автоматик тиклаб қўямиз
         let taskUsers = {};
         DEFAULT_USERS.forEach((usr) => {
-            const uniqueKey = usr.username ? usr.username.toLowerCase() : usr.name;
+            const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
             taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
         });
         task = {
@@ -354,12 +395,13 @@ bot.action('tanishdim', async (ctx) => {
 
     const userId = ctx.from.id.toString();
     const username = ctx.from.username ? ctx.from.username.toLowerCase() : null;
+    const userFirstName = ctx.from.first_name.toLowerCase();
     const safeUserName = ctx.from.first_name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     let foundKey = null;
     for (const key in task.users) {
         const u = task.users[key];
-        if (key === userId || (username && u.username && u.username.toLowerCase() === username)) {
+        if (key === userId || (username && u.username && u.username.toLowerCase() === username) || u.name.toLowerCase().includes(userFirstName)) {
             foundKey = key;
             break;
         }
@@ -445,36 +487,17 @@ setInterval(() => {
             db.lastLeaderboardDate = todayStr;
             dbChanged = true;
 
-            const statsArr = Object.values(db.stats || {});
-            if (statsArr.length > 0) {
-                statsArr.sort((a, b) => b.score - a.score);
-
-                const top3 = statsArr.slice(0, 3);
-                const antiTop3 = statsArr.slice(-3).reverse();
-
-                let report = `🏆 <b>ҲАФТАЛИК РЕЙТИНГ ЖАДВАЛИ (ТОП & АНТИ-ТОП)</b>\n\n`;
-                
-                report += `🥇 <b>Энг фаол ва топшириқларни бажарганлар:</b>\n`;
-                top3.forEach((item, idx) => {
-                    report += `${idx + 1}. ${item.name} — ${item.score} балл (${item.completed} та бажарилган)\n`;
-                });
-
-                report += `\n📉 <b>Энг паст кўрсаткичга эга бўлганлар:</b>\n`;
-                antiTop3.forEach((item, idx) => {
-                    report += `${idx + 1}. ${item.name} — ${item.score} балл\n`;
-                });
-
-                const chatIds = new Set();
-                for (const tid in db.tasks) {
-                    if (db.tasks[tid].chatId) chatIds.add(db.tasks[tid].chatId);
-                }
-
-                chatIds.forEach(chatId => {
-                    bot.telegram.sendMessage(chatId, report, { parse_mode: 'HTML' }).catch(() => {});
-                });
-
-                db.stats = {};
+            const report = createLeaderboardText(db.stats);
+            const chatIds = new Set();
+            for (const tid in db.tasks) {
+                if (db.tasks[tid].chatId) chatIds.add(db.tasks[tid].chatId);
             }
+
+            chatIds.forEach(chatId => {
+                bot.telegram.sendMessage(chatId, report, { parse_mode: 'HTML' }).catch(() => {});
+            });
+
+            db.stats = {}; // Балларни янги ҳафта учун тозалаш
         }
     }
     
