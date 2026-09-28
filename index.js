@@ -104,7 +104,6 @@ const addScore = (username, name, points) => {
     writeDB(db);
 };
 
-// Лидербоард матнини тайёрлаб берадиган функция
 function createLeaderboardText(statsObj) {
     const statsArr = Object.values(statsObj || {});
     if (statsArr.length === 0) {
@@ -131,16 +130,10 @@ function createLeaderboardText(statsObj) {
     return report;
 }
 
-// ==========================================
-// АДМИН УЧУН МАХСУС /reyting КОМАНДАСИ
-// ==========================================
 bot.command(['reyting', 'leaderboard', 'rating'], async (ctx) => {
     if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ фақат гуруҳларда ишлайди.");
-    
     const adminCheck = await isAdmin(ctx);
-    if (!adminCheck) {
-        return ctx.reply("Кечирасиз, рейтингни фақат гуруҳ админлари чақира олади.");
-    }
+    if (!adminCheck) return ctx.reply("Кечирасиз, рейтингни фақат гуруҳ админлари чақира олади.");
 
     const db = readDB();
     const report = createLeaderboardText(db.stats);
@@ -150,6 +143,67 @@ bot.command(['reyting', 'leaderboard', 'rating'], async (ctx) => {
 bot.on('message', async (ctx) => {
     
     // ==========================================
+    // 0. ЭСКИ ТОПШИРИҚНИ ҚАЙТА ТАШЛАШ (/qayta ёки /yangilash)
+    // ==========================================
+    if (ctx.message.reply_to_message && ctx.message.text) {
+        const textLower = ctx.message.text.trim().toLowerCase();
+        if (textLower.startsWith('/qayta') || textLower.startsWith('/yangilash')) {
+            const adminCheck = await isAdmin(ctx);
+            if (!adminCheck) {
+                await ctx.deleteMessage().catch(() => {});
+                return ctx.reply("Кечирасиз, буни фақат админлар қила олади.");
+            }
+
+            const oldTaskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
+            const db = readDB();
+            const oldTask = db.tasks[oldTaskId];
+
+            if (!oldTask) {
+                await ctx.deleteMessage().catch(() => {});
+                return ctx.reply("❌ Бу эски топшириқ базада топилмади ёки янги форматда эмас.");
+            }
+
+            // Статусларни сақлаган ҳолда янги хабар юбориш
+            const userList = generateUserList(oldTask.users);
+            const messageContent = `📋 <b>ЯНГИ ВАЗИФА!</b>\n👤 <b>Топшириқ берувчи:</b> ${oldTask.adminMention}\n\n📝 <b>Вазифа:</b> ${oldTask.text}\n\n<b>Топшириқ ҳолати:</b>\n${userList}`;
+
+            const extraOptions = {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "👁 Танишдим", callback_data: "tanishdim" }],
+                        [{ text: "🔒 Топшириқни ёпиш", callback_data: "yopish" }]
+                    ]
+                }
+            };
+
+            let sentMsg;
+            if (oldTask.hasMedia) {
+                extraOptions.caption = messageContent;
+                sentMsg = await ctx.telegram.copyMessage(ctx.chat.id, ctx.chat.id, ctx.message.reply_to_message.message_id, extraOptions);
+            } else {
+                sentMsg = await ctx.reply(messageContent, extraOptions);
+            }
+
+            // Янги топшириқ ID си билан эски маълумотларни базага ёзиш
+            const newTaskId = `${ctx.chat.id}_${sentMsg.message_id}`;
+            db.tasks[newTaskId] = {
+                ...oldTask,
+                chatId: ctx.chat.id
+            };
+            writeDB(db);
+
+            // Эски хабарни гуруҳдан ва базадан ўчириб ташлаш
+            await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id).catch(() => {});
+            delete db.tasks[oldTaskId];
+            writeDB(db);
+
+            await ctx.deleteMessage().catch(() => {});
+            return;
+        }
+    }
+
+    // ==========================================
     // 1. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ (+ ёки -)
     // ==========================================
     if (ctx.message.reply_to_message && ctx.message.text) {
@@ -157,25 +211,6 @@ bot.on('message', async (ctx) => {
         const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
         const db = readDB();
         let task = db.tasks[taskId];
-
-        if (!task) {
-            let taskUsers = {};
-            DEFAULT_USERS.forEach((usr) => {
-                const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
-                taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
-            });
-            task = {
-                chatId: ctx.chat.id,
-                adminId: ctx.message.reply_to_message.from.id,
-                adminMention: "Админ",
-                text: ctx.message.reply_to_message.text || "Топшириқ",
-                status: 'open',
-                hasMedia: false,
-                users: taskUsers
-            };
-            db.tasks[taskId] = task;
-            writeDB(db);
-        }
 
         if (task) {
             const isPlus = replyText.startsWith('+');
@@ -372,25 +407,7 @@ bot.action('tanishdim', async (ctx) => {
     const db = readDB();
     let task = db.tasks[taskId];
 
-    if (!task) {
-        let taskUsers = {};
-        DEFAULT_USERS.forEach((usr) => {
-            const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
-            taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
-        });
-        task = {
-            chatId: ctx.chat.id,
-            adminId: ctx.from.id,
-            adminMention: "Админ",
-            text: "Топшириқ",
-            status: 'open',
-            hasMedia: false,
-            users: taskUsers
-        };
-        db.tasks[taskId] = task;
-        writeDB(db);
-    }
-
+    if (!task) return ctx.answerCbQuery("Бу топшириқ базада топилмади.", { show_alert: true });
     if (task.status === 'closed') return ctx.answerCbQuery("Бу топшириқ ёпилган!", { show_alert: true });
 
     const userId = ctx.from.id.toString();
@@ -497,7 +514,7 @@ setInterval(() => {
                 bot.telegram.sendMessage(chatId, report, { parse_mode: 'HTML' }).catch(() => {});
             });
 
-            db.stats = {}; // Балларни янги ҳафта учун тозалаш
+            db.stats = {};
         }
     }
     
