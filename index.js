@@ -114,23 +114,33 @@ bot.on('message', async (ctx) => {
         const replyText = ctx.message.text.trim();
         const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
         const db = readDB();
-        const task = db.tasks[taskId];
+        let task = db.tasks[taskId];
+
+        if (!task) {
+            // Агар базада топилмаса, тиклаб олиш
+            let taskUsers = {};
+            DEFAULT_USERS.forEach((usr) => {
+                const uniqueKey = usr.username ? usr.username.toLowerCase() : usr.name;
+                taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
+            });
+            task = {
+                chatId: ctx.chat.id,
+                adminId: ctx.message.reply_to_message.from.id,
+                adminMention: "Админ",
+                text: ctx.message.reply_to_message.text || "Топшириқ",
+                status: 'open',
+                hasMedia: false,
+                users: taskUsers
+            };
+            db.tasks[taskId] = task;
+            writeDB(db);
+        }
 
         if (task) {
             const isPlus = replyText.startsWith('+');
             const isMinus = replyText.startsWith('-');
 
             if (isPlus || isMinus) {
-                const adminCheck = await isAdmin(ctx);
-                if (task.status === 'closed' || !adminCheck) {
-                    await ctx.deleteMessage().catch(() => {});
-                    if (task.status === 'closed') {
-                        const warn = await ctx.reply("❌ Бу топшириқ ёпилган, энди ўзгартириб бўлмайди!");
-                        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, warn.message_id).catch(() => {}), 3000);
-                    }
-                    return;
-                }
-
                 let targetKey = null;
                 const authorId = ctx.message.reply_to_message.from.id.toString();
                 const authorUsername = ctx.message.reply_to_message.from.username ? ctx.message.reply_to_message.from.username.toLowerCase() : null;
@@ -314,12 +324,32 @@ bot.on('message', async (ctx) => {
     }
 });
 
+// "Танишдим" тугмаси босилганда
 bot.action('tanishdim', async (ctx) => {
     const taskId = `${ctx.chat.id}_${ctx.callbackQuery.message.message_id}`;
     const db = readDB();
-    const task = db.tasks[taskId];
+    let task = db.tasks[taskId];
 
-    if (!task) return ctx.answerCbQuery("Бу топшириқ базада топилмади.", { show_alert: true });
+    if (!task) {
+        // Агар базада топилмаса, автоматик тиклаб қўямиз
+        let taskUsers = {};
+        DEFAULT_USERS.forEach((usr) => {
+            const uniqueKey = usr.username ? usr.username.toLowerCase() : usr.name;
+            taskUsers[uniqueKey] = { name: usr.name, username: usr.username, status: 'tanishmadi' };
+        });
+        task = {
+            chatId: ctx.chat.id,
+            adminId: ctx.from.id,
+            adminMention: "Админ",
+            text: "Топшириқ",
+            status: 'open',
+            hasMedia: false,
+            users: taskUsers
+        };
+        db.tasks[taskId] = task;
+        writeDB(db);
+    }
+
     if (task.status === 'closed') return ctx.answerCbQuery("Бу топшириқ ёпилган!", { show_alert: true });
 
     const userId = ctx.from.id.toString();
@@ -407,19 +437,6 @@ bot.action('yopish', async (ctx) => {
 setInterval(() => {
     const db = readDB();
     let dbChanged = false;
-    const now = Date.now();
-    const HALF_HOUR = 30 * 60 * 1000;
-
-    for (const taskId in db.tasks) {
-        const task = db.tasks[taskId];
-        
-        if (task.status === 'open' && task.deadline) {
-            if (task.deadline > now && (now - (task.lastReminderTime || 0) >= HALF_HOUR)) {
-                task.lastReminderTime = now;
-                dbChanged = true;
-            }
-        }
-    }
 
     const currentDate = new Date();
     if (currentDate.getUTCDay() === 6 && currentDate.getUTCHours() === 13 && currentDate.getUTCMinutes() === 0) {
