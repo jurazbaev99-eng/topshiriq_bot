@@ -5,9 +5,6 @@ const path = require('path');
 const http = require('http');
 const archiver = require('archiver');
 
-// ==========================================
-// RENDER PORT TALABINI QONDIRISH (Web Service)
-// ==========================================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -18,7 +15,6 @@ http.createServer((req, res) => {
 
 const dbPath = path.join(__dirname, 'database.json');
 
-// Доимий фойдаланувчилар рўйхати (15 та)
 const DEFAULT_USERS = [
     { name: "Elbek Jumabekov", username: "elbek_jumabekov" },
     { name: "Makhsud Kalbayev", username: "kalbayev_makhsud_kurbonbaevich" },
@@ -140,42 +136,6 @@ const addScore = (username, name, points, isCompleted = false) => {
     writeDB(db);
 };
 
-function createLeaderboardText(statsObj) {
-    const statsArr = Object.values(statsObj || {});
-    if (statsArr.length === 0) {
-        return "📊 Ҳозирча ҳеч ким балл тўпламади.";
-    }
-
-    statsArr.sort((a, b) => b.score - a.score);
-
-    const top3 = statsArr.slice(0, 3);
-    const antiTop3 = statsArr.slice(-3).reverse();
-
-    let report = `🏆 <b>ҲАФТАЛИК РЕЙТИНГ ЖАДВАЛИ (ТОП & АНТИ-ТОП)</b>\n\n`;
-    
-    report += `🥇 <b>Энг фаол ва топшириқларни бажарганлар:</b>\n`;
-    top3.forEach((item, idx) => {
-        report += `${idx + 1}. ${item.name} — ${item.score} балл (${item.completed} та бажарилган)\n`;
-    });
-
-    report += `\n📉 <b>Энг паст кўрсаткичга эга бўлганлар:</b>\n`;
-    antiTop3.forEach((item, idx) => {
-        report += `${idx + 1}. ${item.name} — ${item.score} балл\n`;
-    });
-
-    return report;
-}
-
-bot.command(['reyting', 'leaderboard', 'rating'], async (ctx) => {
-    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ фақат гуруҳларда ишлайди.");
-    const adminCheck = await isAdmin(ctx);
-    if (!adminCheck) return ctx.reply("Кечирасиз, рейтингни фақат гуруҳ админлари чақира олади.");
-
-    const db = readDB();
-    const report = createLeaderboardText(db.stats);
-    await ctx.reply(report, { parse_mode: 'HTML' });
-});
-
 bot.command('admin', async (ctx) => {
     if (ctx.chat.type !== 'private') return ctx.reply("Бу буйруқ фақат ботнинг шахсий чатида (личкада) ишлайди.");
 
@@ -195,169 +155,6 @@ bot.command('admin', async (ctx) => {
     await ctx.reply("Админ панель: Текширмоқчи бўлган топшириқни танланг:", {
         reply_markup: { inline_keyboard: buttons }
     });
-});
-
-bot.action(/^adm_task_(.+)$/, async (ctx) => {
-    const taskId = ctx.match[1];
-    const db = readDB();
-    const task = db.tasks[taskId];
-
-    if (!task) return ctx.answerCbQuery("Топшириқ топилмади.", { show_alert: true });
-
-    let buttons = [];
-    for (const uKey in task.users) {
-        const u = task.users[uKey];
-        const count = (db.screenshots[taskId]?.[uKey] || []).length;
-        buttons.push([{ text: `👤 ${u.name} (${count} та скриншот)`, callback_data: `adm_user_${taskId}_${uKey}` }]);
-    }
-
-    await ctx.editMessageText(`📌 <b>Топшириқ:</b> ${task.text}\n\nИштирокчилардан бирини танланг:`, {
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: buttons }
-    });
-});
-
-bot.action(/^adm_user_(.+)_(.+)$/, async (ctx) => {
-    const taskId = ctx.match[1];
-    const userKey = ctx.match[2];
-    const db = readDB();
-    const task = db.tasks[taskId];
-    const userFiles = db.screenshots[taskId]?.[userKey] || [];
-    const uObj = task.users[userKey];
-
-    if (userFiles.length === 0) {
-        return ctx.answerCbQuery("Бу фойдаланувчи ҳали скриншот юбормаган.", { show_alert: true });
-    }
-
-    await ctx.reply(`👤 <b>${uObj.name}</b> томонидан юборилган скриншотлар (${userFiles.length} та):\n\nҲаммасини папка қилиб юклаб олиш ёки янгиларини кўриш учун қуйидаги тугмаларни босинг:`, {
-        parse_mode: 'HTML',
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "📦 Блоклаб (ZIP) архив қилиб юклаб олиш", callback_data: `zip_${taskId}_${userKey}` }],
-                [{ text: "👁 Фақат янги/қўшимча расмларни кўриш", callback_data: `new_ss_${taskId}_${userKey}` }]
-            ]
-        }
-    });
-});
-
-bot.action(/^zip_(.+)_(.+)$/, async (ctx) => {
-    const taskId = ctx.match[1];
-    const userKey = ctx.match[2];
-    const db = readDB();
-    const userFiles = db.screenshots[taskId]?.[userKey] || [];
-
-    if (userFiles.length === 0) return ctx.answerCbQuery("Расмлар топилмади.", { show_alert: true });
-
-    await ctx.answerCbQuery("📦 Архив тайёрланмоқда, илтимос кутиб туринг...");
-
-    try {
-        const archivePath = path.join(__dirname, `screenshots_${userKey}.zip`);
-        const output = fs.createWriteStream(archivePath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
-
-        archive.pipe(output);
-
-        for (let i = 0; i < userFiles.length; i++) {
-            const fileId = userFiles[i];
-            const fileLink = await ctx.telegram.getFileLink(fileId);
-            const response = await fetch(fileLink.href);
-            const buffer = Buffer.from(await response.arrayBuffer());
-            archive.append(buffer, { name: `screenshot_${i + 1}.jpg` });
-        }
-
-        await archive.finalize();
-
-        await ctx.replyWithDocument({ source: archivePath, filename: `screenshots_${userKey}.zip` });
-        
-        setTimeout(() => {
-            if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
-        }, 10000);
-
-    } catch (err) {
-        ctx.reply("❌ Архив қилишда хатолик юз берди.");
-    }
-});
-
-bot.action(/^new_ss_(.+)_(.+)$/, async (ctx) => {
-    const taskId = ctx.match[1];
-    const userKey = ctx.match[2];
-    const db = readDB();
-    const userFiles = db.screenshots[taskId]?.[userKey] || [];
-    
-    if (!db.checkedIndex) db.checkedIndex = {};
-    if (!db.checkedIndex[taskId]) db.checkedIndex[taskId] = {};
-    let lastChecked = db.checkedIndex[taskId][userKey] || 0;
-
-    if (lastChecked >= userFiles.length) {
-        return ctx.answerCbQuery("Ҳозирча янги қўшилган скриншотлар қолмади (ҳаммаси кўриб чиқилган).", { show_alert: true });
-    }
-
-    await ctx.reply(`🔍 Янги қўшилган скриншотлар (${lastChecked + 1} дан ${userFiles.length} гача):`);
-
-    for (let i = lastChecked; i < userFiles.length; i++) {
-        const fileId = userFiles[i];
-        await ctx.replyWithPhoto(fileId, {
-            caption: `Расм #${i + 1}`,
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "❌ Ушбу расмни рад этиш ва ўчириш", callback_data: `del_ss_${taskId}_${userKey}_${i}` }]
-                ]
-            }
-        });
-    }
-
-    db.checkedIndex[taskId][userKey] = userFiles.length;
-    writeDB(db);
-});
-
-bot.action(/^del_ss_(.+)_(.+)_(.+)$/, async (ctx) => {
-    const taskId = ctx.match[1];
-    const userKey = ctx.match[2];
-    const index = parseInt(ctx.match[3]);
-
-    const db = readDB();
-    const task = db.tasks[taskId];
-    if (!task || !task.users[userKey]) return ctx.answerCbQuery("Маълумот топилмади.", { show_alert: true });
-
-    const uObj = task.users[userKey];
-    let userFiles = db.screenshots[taskId]?.[userKey] || [];
-
-    if (index >= 0 && index < userFiles.length) {
-        userFiles.splice(index, 1);
-        db.screenshots[taskId][userKey] = userFiles;
-
-        if (db.checkedIndex?.[taskId]?.[userKey]) {
-            db.checkedIndex[taskId][userKey] = userFiles.length;
-        }
-
-        if (uObj.requiredScreenshots && userFiles.length < uObj.requiredScreenshots) {
-            if (uObj.status === 'bajarildi') {
-                uObj.status = 'tanishdi';
-                addScore(uObj.username, uObj.name, -5, false);
-            }
-        }
-
-        writeDB(db);
-
-        const userList = generateUserList(task.users, db.screenshots[taskId]);
-        let reqCount = uObj.requiredScreenshots;
-        let headerTitle = reqCount ? `📋 <b>ЯНГИ ВАЗИФА (Скриншот талаб этилади: ${reqCount} та)!</b>` : `📋 <b>ЯНГИ ВАЗИФА!</b>`;
-        const newText = `${headerTitle}\n👤 <b>Топшириқ берувчи:</b> ${task.adminMention}\n\n📝 <b>Вазифа:</b> ${task.text}\n\n<b>Топшириқ ҳолати:</b>\n${userList}`;
-
-        try {
-            const editOptions = { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: "👁 Танишдим", callback_data: "tanishdim" }], [{ text: "🔒 Топшириқни ёпиш", callback_data: "yopish" }]] } };
-            if (task.hasMedia) {
-                await ctx.telegram.editMessageCaption(task.chatId, parseInt(taskId.split('_')[1]), undefined, newText, editOptions);
-            } else {
-                await ctx.telegram.editMessageText(task.chatId, parseInt(taskId.split('_')[1]), undefined, newText, editOptions);
-            }
-        } catch (err) {}
-
-        await ctx.answerCbQuery("✅ Танланган расм ўчирилди ва ҳисоб янгиланди!", { show_alert: true });
-        await ctx.editMessageCaption("❌ Ушбу расм рад этилиб, ўчириб ташланди.").catch(() => {});
-    } else {
-        await ctx.answerCbQuery("Хатолик: расм топилмади.", { show_alert: true });
-    }
 });
 
 bot.on('message', async (ctx) => {
@@ -438,109 +235,32 @@ bot.on('message', async (ctx) => {
         return;
     }
 
-    // 1. Эски топшириқни қайта ташлаш (/qayta)
-    if (ctx.message.reply_to_message && ctx.message.text) {
-        const textLower = ctx.message.text.trim().toLowerCase();
-        if (textLower.startsWith('/qayta') || textLower.startsWith('/yangilash')) {
-            const adminCheck = await isAdmin(ctx);
-            if (!adminCheck) {
-                await ctx.deleteMessage().catch(() => {});
-                return ctx.reply("Кечирасиз, буни фақат админлар қила олади.");
-            }
-
-            const oldTaskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
-            const db = readDB();
-            const oldTask = db.tasks[oldTaskId];
-
-            if (!oldTask) {
-                await ctx.deleteMessage().catch(() => {});
-                return ctx.reply("❌ Бу эски топшириқ базада топилмади.");
-            }
-
-            const userList = generateUserList(oldTask.users, db.screenshots[oldTaskId]);
-            let reqCount = Object.values(oldTask.users)[0]?.requiredScreenshots;
-            let headerTitle = reqCount ? `📋 <b>ЯНГИ ВАЗИФА (Скриншот талаб этилади: ${reqCount} та)!</b>` : `📋 <b>ЯНГИ ВАЗИФА!</b>`;
-            const messageContent = `${headerTitle}\n👤 <b>Топшириқ берувчи:</b> ${oldTask.adminMention}\n\n📝 <b>Вазифа:</b> ${oldTask.text}\n\n<b>Топшириқ ҳолати:</b>\n${userList}`;
-
-            const extraOptions = {
-                parse_mode: 'HTML',
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "👁 Танишдим", callback_data: "tanishdim" }],
-                        [{ text: "🔒 Топшириқни ёпиш", callback_data: "yopish" }]
-                    ]
-                }
-            };
-
-            let sentMsg;
-            if (oldTask.hasMedia) {
-                extraOptions.caption = messageContent;
-                sentMsg = await ctx.telegram.copyMessage(ctx.chat.id, ctx.chat.id, ctx.message.reply_to_message.message_id, extraOptions);
-            } else {
-                sentMsg = await ctx.reply(messageContent, extraOptions);
-            }
-
-            const newTaskId = `${ctx.chat.id}_${sentMsg.message_id}`;
-            db.tasks[newTaskId] = { ...oldTask, chatId: ctx.chat.id };
-            if (db.screenshots[oldTaskId]) {
-                db.screenshots[newTaskId] = db.screenshots[oldTaskId];
-                delete db.screenshots[oldTaskId];
-            }
-            writeDB(db);
-
-            await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id).catch(() => {});
-            delete db.tasks[oldTaskId];
-            writeDB(db);
-
-            await ctx.deleteMessage().catch(() => {});
-            return;
-        }
-    }
-
-    // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / - орқали) - ФАҚАТ АДМИНЛАР УЧУН!
+    // 1. ТОПШИРИҚҚА REPLY ҚИЛИБ '+' ЁКИ '-' ЁЗГАНДА ҲОЛАТНИ ЎЗГАРТИРИШ
     if (ctx.message.reply_to_message && (ctx.message.text || ctx.message.caption)) {
         const replyText = (ctx.message.text || ctx.message.caption || '').trim();
-        const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
-        const db = readDB();
-        let task = db.tasks[taskId];
+        const isPlus = replyText.startsWith('+');
+        const isMinus = replyText.startsWith('-');
 
-        if (task) {
-            const isPlus = replyText.startsWith('+');
-            const isMinus = replyText.startsWith('-');
+        if (isPlus || isMinus) {
+            const adminCheck = await isAdmin(ctx);
+            if (!adminCheck) {
+                return; // Админ бўлмаса ҳеч нарса қилмайди
+            }
 
-            if (isPlus || isMinus) {
-                const adminCheck = await isAdmin(ctx);
-                if (!adminCheck) {
-                    await ctx.deleteMessage().catch(() => {});
-                    return;
-                }
+            // Айнан ўша реплай қилинган хабарнинг ID си орқали топшириқни топамизки, бу бир нечта топшириқ бўлганда ҳам адашмайди
+            const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
+            const db = readDB();
+            let task = db.tasks[taskId];
 
+            if (task) {
                 let targetKey = null;
-                let searchUsername = null;
+                const repliedUser = ctx.message.reply_to_message.from;
+                const repliedUsername = repliedUser && repliedUser.username ? repliedUser.username.toLowerCase() : null;
 
-                // А) Текст ичидаги @username ни топиш
+                // Хабар эгасининг username ёки исми бўйича базадан топамизки, бу 100% аниқ ишлайди
                 const mentionMatch = replyText.match(/@([a-zA-Z0-9_]+)/);
-                if (mentionMatch) {
-                    searchUsername = mentionMatch[1].toLowerCase();
-                }
+                let searchUsername = mentionMatch ? mentionMatch[1].toLowerCase() : repliedUsername;
 
-                // Б) Текста entity (mention ёки text_link) орқали уланган @username ёки user_id ни топиш
-                if (!searchUsername && ctx.message.entities) {
-                    for (const entity of ctx.message.entities) {
-                        if (entity.type === 'text_mention' && entity.user) {
-                            const targetUserId = entity.user.id.toString();
-                            if (task.users[targetUserId]) {
-                                targetKey = targetUserId;
-                                break;
-                            }
-                            if (entity.user.username) {
-                                searchUsername = entity.user.username.toLowerCase();
-                            }
-                        }
-                    }
-                }
-
-                // В) Умумий базадан username бўйича қидириш
                 if (searchUsername) {
                     for (const key in task.users) {
                         const u = task.users[key];
@@ -551,14 +271,13 @@ bot.on('message', async (ctx) => {
                     }
                 }
 
-                // Г) Рақам орқали қидириш (масалан: +15)
-                if (!targetKey) {
-                    const numMatch = replyText.match(/^[\+-]\s*(\d+)$/);
-                    if (numMatch) {
-                        const num = parseInt(numMatch[1]);
-                        const keys = Object.keys(task.users);
-                        if (num > 0 && num <= keys.length) {
-                            targetKey = keys[num - 1];
+                if (!targetKey && repliedUser) {
+                    // Агар username бўлмаса, исми ёки ID си бўйича текширамиз
+                    for (const key in task.users) {
+                        const u = task.users[key];
+                        if (key === repliedUser.id.toString() || u.name.toLowerCase().includes(repliedUser.first_name.toLowerCase())) {
+                            targetKey = key;
+                            break;
                         }
                     }
                 }
@@ -583,12 +302,11 @@ bot.on('message', async (ctx) => {
                     let headerTitle = reqCount ? `📋 <b>ЯНГИ ВАЗИФА (Скриншот талаб этилади: ${reqCount} та)!</b>` : `📋 <b>ЯНГИ ВАЗИФА!</b>`;
                     const newText = `${headerTitle}\n👤 <b>Топшириқ берувчи:</b> ${task.adminMention}\n\n📝 <b>Вазифа:</b> ${task.text}\n\n<b>Топшириқ ҳолати:</b>\n${userList}`;
 
-                    const editOptions = {
-                        parse_mode: 'HTML',
-                        reply_markup: ctx.message.reply_to_message.reply_markup 
-                    };
-
                     try {
+                        const editOptions = {
+                            parse_mode: 'HTML',
+                            reply_markup: ctx.message.reply_to_message.reply_markup 
+                        };
                         if (task.hasMedia) {
                             await ctx.telegram.editMessageCaption(ctx.chat.id, ctx.message.reply_to_message.message_id, undefined, newText, editOptions);
                         } else {
@@ -598,12 +316,12 @@ bot.on('message', async (ctx) => {
                 }
                 
                 await ctx.deleteMessage().catch(() => {});
-                return; 
+                return;
             }
         }
     }
 
-    // 3. ЯНГИ ТОПШИРИҚ БЕРИШ (/topshiriq ёки /skrinshot [сони])
+    // 2. ЯНГИ ТОПШИРИҚ БЕРИШ
     let text = ctx.message.text || ctx.message.caption || '';
     let isCommand = text.toLowerCase().startsWith('/topshiriq') || text.toLowerCase().startsWith('/vazifa') || text.toLowerCase().startsWith('/skrinshot') || text.toLowerCase().startsWith('/ss');
     
@@ -616,8 +334,6 @@ bot.on('message', async (ctx) => {
     }
 
     if (isCommand) {
-        if (ctx.chat.type === 'private') return ctx.reply("Бу команда фақат гуруҳларда ишлайди.");
-        
         const adminCheck = await isAdmin(ctx);
         if (!adminCheck) {
             await ctx.deleteMessage().catch(() => {});
@@ -711,7 +427,6 @@ bot.on('message', async (ctx) => {
     }
 });
 
-// "Танишдим" тугмаси босилганда
 bot.action('tanishdim', async (ctx) => {
     const taskId = `${ctx.chat.id}_${ctx.callbackQuery.message.message_id}`;
     const db = readDB();
@@ -798,56 +513,6 @@ bot.action('yopish', async (ctx) => {
         ctx.answerCbQuery("Хатолик юз берди.");
     }
 });
-
-setInterval(async () => {
-    const db = readDB();
-    let dbChanged = false;
-    const now = Date.now();
-
-    for (const tid in db.tasks) {
-        const task = db.tasks[tid];
-        if (task.status === 'open') {
-            if (!task.lastReminderTime || (now - task.lastReminderTime >= 30 * 60 * 1000)) {
-                task.lastReminderTime = now;
-                dbChanged = true;
-
-                for (const uKey in task.users) {
-                    const u = task.users[uKey];
-                    if (u.status !== 'bajarildi') {
-                        const userChatId = db.userChatIds?.[uKey] || (u.username ? db.userChatIds[u.username.toLowerCase()] : null);
-                        if (userChatId) {
-                            const reminderText = `⚠️️ <b>Эслатма!</b>\nСиз қуйидаги топшириқни ҳали бажармадингиз:\n\n📝 <b>Вазифа:</b> ${task.text}\n\nИлтимос, вазифани ўз вақтида бажаринг!`;
-                            await bot.telegram.sendMessage(userChatId, reminderText, { parse_mode: 'HTML' }).catch(() => {});
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    const currentDate = new Date();
-    if (currentDate.getUTCDay() === 6 && currentDate.getUTCHours() === 13 && currentDate.getUTCMinutes() === 0) {
-        const todayStr = currentDate.toISOString().split('T')[0];
-        if (db.lastLeaderboardDate !== todayStr) {
-            db.lastLeaderboardDate = todayStr;
-            dbChanged = true;
-
-            const report = createLeaderboardText(db.stats);
-            const chatIds = new Set();
-            for (const tid in db.tasks) {
-                if (db.tasks[tid].chatId) chatIds.add(db.tasks[tid].chatId);
-            }
-
-            chatIds.forEach(chatId => {
-                bot.telegram.sendMessage(chatId, report, { parse_mode: 'HTML' }).catch(() => {});
-            });
-
-            db.stats = {};
-        }
-    }
-    
-    if (dbChanged) writeDB(db);
-}, 60000);
 
 bot.launch({ dropPendingUpdates: true }).then(() => {
     console.log("Bot muvaffaqiyatli ishga tushdi...");
