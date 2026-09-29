@@ -3,7 +3,6 @@ const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const archiver = require('archiver');
 
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
@@ -104,7 +103,7 @@ function generateUserList(taskUsers, taskScreenshots = {}) {
             const currentCount = userFiles.length;
             totalScreenshots += currentCount;
             
-            extraInfo = ` (${currentCount}/${u.requiredScreenshots})`;
+            extraInfo = ` (${currentCount} та скриншот)`;
             if (u.status === 'bajarildi') {
                 icon = '✅';
             }
@@ -114,7 +113,6 @@ function generateUserList(taskUsers, taskScreenshots = {}) {
         count++;
     }
 
-    // Умумий скриншотлар сонини чиқариш (ҳамма топшириқлар учун ишлайди)
     userList += `\n📊 <b>Умумий юборилган скриншотлар:</b> ${totalScreenshots} та`;
 
     return userList;
@@ -180,6 +178,7 @@ bot.action(/^adm_task_(.+)$/, async (ctx) => {
     });
 });
 
+// Фойдаланувчининг расмларини бирма-бир кўрсатиш ва ҳар бирини ўчириш тугмаси билан
 bot.action(/^adm_user_(.+)_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const userKey = ctx.match[2];
@@ -196,51 +195,67 @@ bot.action(/^adm_user_(.+)_(.+)$/, async (ctx) => {
         return ctx.answerCbQuery("Бу фойдаланувчи ҳали скриншот юбормаган.", { show_alert: true });
     }
 
-    await ctx.reply(`👤 <b>${uObj.name}</b> томонидан юборилган скриншотлар (${userFiles.length} та):\n\nЮклаб олиш учун қуйидаги тугмани босинг:`, {
-        parse_mode: 'HTML',
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "📦 ZIP архив қилиб юклаб олиш", callback_data: `zip_${taskId}_${userKey}` }]
-            ]
-        }
-    });
+    await ctx.answerCbQuery("Расмлар юкланмоқда...");
+    await ctx.reply(`👤 <b>${uObj.name}</b> томонидан юборилган скриншотлар (${userFiles.length} та):`, { parse_mode: 'HTML' });
+
+    for (let i = 0; i < userFiles.length; i++) {
+        await ctx.replyWithPhoto(userFiles[i], {
+            caption: `Расм #${i + 1} (${uObj.name})`,
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "❌ Ушбу расмни рад этиш ва ўчириш", callback_data: `del_ss_${taskId}_${userKey}_${i}` }]
+                ]
+            }
+        }).catch(() => {});
+    }
 });
 
-bot.action(/^zip_(.+)_(.+)$/, async (ctx) => {
+// Расмни рад этиш ва ўчириш тугмаси ишлаши
+bot.action(/^del_ss_(.+)_(.+)_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const userKey = ctx.match[2];
+    const index = parseInt(ctx.match[3]);
+
     const db = readDB();
-    const userFiles = db.screenshots[taskId]?.[userKey] || [];
+    const task = db.tasks[taskId];
+    if (!task || !task.users[userKey]) return ctx.answerCbQuery("Маълумот топилмади.", { show_alert: true });
 
-    if (userFiles.length === 0) return ctx.answerCbQuery("Расмлар топилмади.", { show_alert: true });
+    const uObj = task.users[userKey];
+    let userFiles = db.screenshots[taskId]?.[userKey] || [];
 
-    await ctx.answerCbQuery("📦 Архив тайёрланмоқда, илтимос кутиб туринг...");
+    if (index >= 0 && index < userFiles.length) {
+        userFiles.splice(index, 1);
+        db.screenshots[taskId][userKey] = userFiles;
 
-    try {
-        const archivePath = path.join(__dirname, `screenshots_${userKey}.zip`);
-        const output = fs.createWriteStream(archivePath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
-
-        archive.pipe(output);
-
-        for (let i = 0; i < userFiles.length; i++) {
-            const fileId = userFiles[i];
-            const fileLink = await ctx.telegram.getFileLink(fileId);
-            const response = await fetch(fileLink.href);
-            const buffer = Buffer.from(await response.arrayBuffer());
-            archive.append(buffer, { name: `screenshot_${i + 1}.jpg` });
+        // Агар скриншотлар сони етарли миқдордан камайиб кетса, статусни орқага қайтарамиз
+        if (uObj.requiredScreenshots && userFiles.length < uObj.requiredScreenshots) {
+            if (uObj.status === 'bajarildi') {
+                uObj.status = 'tanishmadi';
+                addScore(uObj.username, uObj.name, -5, false);
+            }
         }
 
-        await archive.finalize();
+        writeDB(db);
 
-        await ctx.replyWithDocument({ source: archivePath, filename: `screenshots_${userKey}.zip` });
-        
-        setTimeout(() => {
-            if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
-        }, 10000);
+        // Гуруҳдаги хабарни янгилаш
+        const userList = generateUserList(task.users, db.screenshots[taskId]);
+        let reqCount = uObj.requiredScreenshots;
+        let headerTitle = reqCount ? `📋 <b>ЯНГИ ВАЗИФА (Скриншот талаб этилади: ${reqCount} та)!</b>` : `📋 <b>ЯНГИ ВАЗИФА!</b>`;
+        const newText = `${headerTitle}\n👤 <b>Топшириқ берувчи:</b> ${task.adminMention}\n\n📝 <b>Вазифа:</b> ${task.text}\n\n<b>Топшириқ ҳолати:</b>\n${userList}`;
 
-    } catch (err) {
-        ctx.reply("❌ Архив қилишда хатолик юз берди.");
+        try {
+            const editOptions = { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: "👁 Танишдим", callback_data: "tanishdim" }], [{ text: "🔒 Топшириқни ёпиш", callback_data: "yopish" }]] } };
+            if (task.hasMedia) {
+                await ctx.telegram.editMessageCaption(task.chatId, parseInt(taskId.split('_')[1]), undefined, newText, editOptions);
+            } else {
+                await ctx.telegram.editMessageText(task.chatId, parseInt(taskId.split('_')[1]), undefined, newText, editOptions);
+            }
+        } catch (err) {}
+
+        await ctx.answerCbQuery("✅ Расм рад этилиб, ўчириб ташланди!");
+        await ctx.editMessageCaption("❌ Ушбу расм рад этилиб, ўчирилди.").catch(() => {});
+    } else {
+        await ctx.answerCbQuery("Хатолик: расм топилмади.", { show_alert: true });
     }
 });
 
@@ -257,7 +272,6 @@ bot.on('message', async (ctx) => {
 
     const isPrivate = ctx.chat.type === 'private';
 
-    // ЛИЧКАДА СКРИНШОТНИ ҚАБУЛ ҚИЛИШ МАНТИҒИ
     if (isPrivate) {
         if (ctx.message.photo || ctx.message.document) {
             const db = readDB();
@@ -283,7 +297,7 @@ bot.on('message', async (ctx) => {
             }
 
             if (!targetTaskId) {
-                return ctx.reply("Ҳозирча сиз учун скриншот талаб қилинадиган очиқ топшириқ йўқ.");
+                return ctx.reply("Ҳозирча сиз учун скриншот талаб этиладиган очиқ топшириқ йўқ.");
             }
 
             const task = db.tasks[targetTaskId];
