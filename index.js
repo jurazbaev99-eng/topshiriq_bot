@@ -398,7 +398,7 @@ bot.on('message', async (ctx) => {
             }
 
             if (!targetTaskId) {
-                return ctx.reply("Ҳозирча сиз учун скриншот талаб қилинадиган очиқ топшириқ йўқ.");
+                return ctx.reply("Ҳозирча сиз учун скриншот талаб этиладиган очиқ топшириқ йўқ.");
             }
 
             const task = db.tasks[targetTaskId];
@@ -498,8 +498,8 @@ bot.on('message', async (ctx) => {
     }
 
     // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / - орқали) - ФАҚАТ АДМИНЛАР УЧУН!
-    if (ctx.message.reply_to_message && ctx.message.text) {
-        const replyText = ctx.message.text.trim();
+    if (ctx.message.reply_to_message && (ctx.message.text || ctx.message.caption)) {
+        const replyText = (ctx.message.text || ctx.message.caption || '').trim();
         const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
         const db = readDB();
         let task = db.tasks[taskId];
@@ -509,19 +509,38 @@ bot.on('message', async (ctx) => {
             const isMinus = replyText.startsWith('-');
 
             if (isPlus || isMinus) {
-                // ТЕКШИРУВ: Ёзган одам гуруҳ адними ёки йўқлигини текширамиз
                 const adminCheck = await isAdmin(ctx);
                 if (!adminCheck) {
                     await ctx.deleteMessage().catch(() => {});
-                    return; // Агар админ бўлмаса, бот бу хабарга эътибор ҳам бермайди
+                    return;
                 }
 
                 let targetKey = null;
+                let searchUsername = null;
 
-                // Матн ичидан @username ни топиш (масалан: +@jasururazbaev)
+                // А) Текст ичидаги @username ни топиш
                 const mentionMatch = replyText.match(/@([a-zA-Z0-9_]+)/);
-                let searchUsername = mentionMatch ? mentionMatch[1].toLowerCase() : null;
+                if (mentionMatch) {
+                    searchUsername = mentionMatch[1].toLowerCase();
+                }
 
+                // Б) Текста entity (mention ёки text_link) орқали уланган @username ёки user_id ни топиш
+                if (!searchUsername && ctx.message.entities) {
+                    for (const entity of ctx.message.entities) {
+                        if (entity.type === 'text_mention' && entity.user) {
+                            const targetUserId = entity.user.id.toString();
+                            if (task.users[targetUserId]) {
+                                targetKey = targetUserId;
+                                break;
+                            }
+                            if (entity.user.username) {
+                                searchUsername = entity.user.username.toLowerCase();
+                            }
+                        }
+                    }
+                }
+
+                // В) Умумий базадан username бўйича қидириш
                 if (searchUsername) {
                     for (const key in task.users) {
                         const u = task.users[key];
@@ -532,7 +551,7 @@ bot.on('message', async (ctx) => {
                     }
                 }
 
-                // Агар @username топилмаса, рақам орқали (+15) қидирамиз
+                // Г) Рақам орқали қидириш (масалан: +15)
                 if (!targetKey) {
                     const numMatch = replyText.match(/^[\+-]\s*(\d+)$/);
                     if (numMatch) {
@@ -797,7 +816,7 @@ setInterval(async () => {
                     if (u.status !== 'bajarildi') {
                         const userChatId = db.userChatIds?.[uKey] || (u.username ? db.userChatIds[u.username.toLowerCase()] : null);
                         if (userChatId) {
-                            const reminderText = `⚠️ <b>Эслатма!</b>\nСиз қуйидаги топшириқни ҳали бажармадингиз:\n\n📝 <b>Вазифа:</b> ${task.text}\n\nИлтимос, вазифани ўз вақтида бажаринг!`;
+                            const reminderText = `⚠️️ <b>Эслатма!</b>\nСиз қуйидаги топшириқни ҳали бажармадингиз:\n\n📝 <b>Вазифа:</b> ${task.text}\n\nИлтимос, вазифани ўз вақтида бажаринг!`;
                             await bot.telegram.sendMessage(userChatId, reminderText, { parse_mode: 'HTML' }).catch(() => {});
                         }
                     }
