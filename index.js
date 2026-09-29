@@ -3,7 +3,7 @@ const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const archiver = require('archiver'); // ZIP архив учун
+const archiver = require('archiver');
 
 // ==========================================
 // RENDER PORT TALABINI QONDIRISH (Web Service)
@@ -33,7 +33,8 @@ const DEFAULT_USERS = [
     { name: "Atabek Saburov", username: "saburov_atabek", fixedKey: "atabek_saburov" },
     { name: "Nurbek Tajibayev", username: "nurbek_tajibayev" },
     { name: "Jasur Urazbaev", username: "jasururazbaev" },
-    { name: "Nilufar Muxammedova", username: "nilufarrmuxammedova" }
+    { name: "Nilufar Muxammedova", username: "nilufarrmuxammedova" },
+    { name: "Atabek", username: "atabek", fixedKey: "atabek_15" }
 ];
 
 const readDB = () => {
@@ -82,7 +83,6 @@ async function isAdmin(ctx) {
     }
 }
 
-// Статус рўйхати va умумий скриншотлар ҳисоблагичи
 function generateUserList(taskUsers, taskScreenshots = {}) {
     let userList = "";
     let count = 1;
@@ -176,9 +176,6 @@ bot.command(['reyting', 'leaderboard', 'rating'], async (ctx) => {
     await ctx.reply(report, { parse_mode: 'HTML' });
 });
 
-// ==========================================
-// АДМИН УЧУН ЛИЧКАДАГИ ТЕКШИРУВ ПАНЕЛИ (/admin)
-// ==========================================
 bot.command('admin', async (ctx) => {
     if (ctx.chat.type !== 'private') return ctx.reply("Бу буйруқ фақат ботнинг шахсий чатида (личкада) ишлайди.");
 
@@ -243,7 +240,6 @@ bot.action(/^adm_user_(.+)_(.+)$/, async (ctx) => {
     });
 });
 
-// ZIP архив қилиб юбориш
 bot.action(/^zip_(.+)_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const userKey = ctx.match[2];
@@ -282,7 +278,6 @@ bot.action(/^zip_(.+)_(.+)$/, async (ctx) => {
     }
 });
 
-// Фақат янги расмларни кўрсатиш
 bot.action(/^new_ss_(.+)_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const userKey = ctx.match[2];
@@ -315,7 +310,6 @@ bot.action(/^new_ss_(.+)_(.+)$/, async (ctx) => {
     writeDB(db);
 });
 
-// Алоҳида расмни ўчириш
 bot.action(/^del_ss_(.+)_(.+)_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const userKey = ctx.match[2];
@@ -379,9 +373,6 @@ bot.on('message', async (ctx) => {
 
     const isPrivate = ctx.chat.type === 'private';
 
-    // ==========================================
-    // ЛИЧКАДА СКРИНШОТ ҚАБУЛ ҚИЛИШ
-    // ==========================================
     if (isPrivate) {
         if (ctx.message.photo || ctx.message.document) {
             const db = readDB();
@@ -447,10 +438,6 @@ bot.on('message', async (ctx) => {
         return;
     }
 
-    // ==========================================
-    // ГУРУҲДАГИ БУЙРУҚЛАР ВА ХАБАРЛАР
-    // ==========================================
-
     // 1. Эски топшириқни қайта ташлаш (/qayta)
     if (ctx.message.reply_to_message && ctx.message.text) {
         const textLower = ctx.message.text.trim().toLowerCase();
@@ -510,9 +497,11 @@ bot.on('message', async (ctx) => {
         }
     }
 
-    // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / -)
+    // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / - орқали)
     if (ctx.message.reply_to_message && ctx.message.text) {
         const replyText = ctx.message.text.trim();
+        
+        // ФАТ ТАҚДИРДА АЙНИН ШУ РЕПЛАЙ ҚИЛИНГАН ТАРИХГА ТЕГИШЛИ ТОПШИРИҚНИ ОЛАМИЗ
         const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
         const db = readDB();
         let task = db.tasks[taskId];
@@ -530,12 +519,15 @@ bot.on('message', async (ctx) => {
 
                 let targetKey = null;
                 const repliedUser = ctx.message.reply_to_message.from;
-                const authorId = repliedUser.id.toString();
-                const authorUsername = repliedUser.username ? repliedUser.username.toLowerCase() : null;
-                const authorName = repliedUser.first_name.toLowerCase();
+                const repliedUserId = repliedUser ? repliedUser.id.toString() : null;
+                const repliedUsername = repliedUser && repliedUser.username ? repliedUser.username.toLowerCase() : null;
 
                 const mentionMatch = replyText.match(/@([a-zA-Z0-9_]+)/);
                 let searchUsername = mentionMatch ? mentionMatch[1].toLowerCase() : null;
+
+                if (!searchUsername && repliedUsername) {
+                    searchUsername = repliedUsername;
+                }
 
                 for (const key in task.users) {
                     const u = task.users[key];
@@ -543,16 +535,16 @@ bot.on('message', async (ctx) => {
                         targetKey = key;
                         break;
                     }
-                    if (!searchUsername && (key === authorId || (authorUsername && u.username && u.username.toLowerCase() === authorUsername) || u.name.toLowerCase().includes(authorName))) {
+                    if (repliedUserId && key === repliedUserId) {
                         targetKey = key;
                         break;
                     }
                 }
 
                 if (!targetKey) {
-                    const match = replyText.match(/^[\+-]\s*(\d+)$/);
-                    if (match) {
-                        const num = parseInt(match[1]);
+                    const numMatch = replyText.match(/^[\+-]\s*(\d+)$/);
+                    if (numMatch) {
+                        const num = parseInt(numMatch[1]);
                         const keys = Object.keys(task.users);
                         if (num > 0 && num <= keys.length) {
                             targetKey = keys[num - 1];
@@ -796,9 +788,6 @@ bot.action('yopish', async (ctx) => {
     }
 });
 
-// ==========================================
-// 3. АВТОМАТИК ЕСЛАТМА ВА ҲАФТАЛИК ЛИДЕРБОАРД ТАЙМЕРИ
-// ==========================================
 setInterval(async () => {
     const db = readDB();
     let dbChanged = false;
