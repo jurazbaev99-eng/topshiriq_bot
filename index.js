@@ -497,11 +497,9 @@ bot.on('message', async (ctx) => {
         }
     }
 
-    // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / - орқали)
+    // 2. БАЖАРИЛГАНЛИКНИ БЕЛГИЛАШ ЁКИ БЕКОР ҚИЛИШ (+ / - орқали) - ФАҚАТ АДМИНЛАР УЧУН!
     if (ctx.message.reply_to_message && ctx.message.text) {
         const replyText = ctx.message.text.trim();
-        
-        // ФАТ ТАҚДИРДА АЙНИН ШУ РЕПЛАЙ ҚИЛИНГАН ТАРИХГА ТЕГИШЛИ ТОПШИРИҚНИ ОЛАМИЗ
         const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
         const db = readDB();
         let task = db.tasks[taskId];
@@ -511,36 +509,30 @@ bot.on('message', async (ctx) => {
             const isMinus = replyText.startsWith('-');
 
             if (isPlus || isMinus) {
+                // ТЕКШИРУВ: Ёзган одам гуруҳ адними ёки йўқлигини текширамиз
                 const adminCheck = await isAdmin(ctx);
                 if (!adminCheck) {
                     await ctx.deleteMessage().catch(() => {});
-                    return;
+                    return; // Агар админ бўлмаса, бот бу хабарга эътибор ҳам бермайди
                 }
 
                 let targetKey = null;
-                const repliedUser = ctx.message.reply_to_message.from;
-                const repliedUserId = repliedUser ? repliedUser.id.toString() : null;
-                const repliedUsername = repliedUser && repliedUser.username ? repliedUser.username.toLowerCase() : null;
 
+                // Матн ичидан @username ни топиш (масалан: +@jasururazbaev)
                 const mentionMatch = replyText.match(/@([a-zA-Z0-9_]+)/);
                 let searchUsername = mentionMatch ? mentionMatch[1].toLowerCase() : null;
 
-                if (!searchUsername && repliedUsername) {
-                    searchUsername = repliedUsername;
-                }
-
-                for (const key in task.users) {
-                    const u = task.users[key];
-                    if (searchUsername && u.username && u.username.toLowerCase() === searchUsername) {
-                        targetKey = key;
-                        break;
-                    }
-                    if (repliedUserId && key === repliedUserId) {
-                        targetKey = key;
-                        break;
+                if (searchUsername) {
+                    for (const key in task.users) {
+                        const u = task.users[key];
+                        if (u.username && u.username.toLowerCase() === searchUsername) {
+                            targetKey = key;
+                            break;
+                        }
                     }
                 }
 
+                // Агар @username топилмаса, рақам орқали (+15) қидирамиз
                 if (!targetKey) {
                     const numMatch = replyText.match(/^[\+-]\s*(\d+)$/);
                     if (numMatch) {
