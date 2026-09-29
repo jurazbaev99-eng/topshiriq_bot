@@ -16,21 +16,22 @@ http.createServer((req, res) => {
 const dbPath = path.join(__dirname, 'database.json');
 
 const DEFAULT_USERS = [
-    { name: "Elbek Jumabekov", username: "elbek_jumabekov" },
-    { name: "Makhsud Kalbayev", username: "kalbayev_makhsud_kurbonbaevich" },
-    { name: "Timur Daryabayev", username: "daryabayev_timur" },
-    { name: "Ali Jumamuratov", username: "ali_jumamuratov" },
-    { name: "Baxodir", username: "baxodir_6694" },
-    { name: "Sherzod Niyazimbetov", username: "sherzod_niyazimbetov" },
-    { name: "Tilekles Mubarekov", username: "tileklesmubarekov" },
-    { name: "Qurbaniyazov Qayrat", username: "qurbaniyazovqayrat" },
-    { name: "Ergash Jumaniyazov", username: "jumaniyazovergash" },
-    { name: "Saraykol OFY", username: "taxiyatosh_tumani_saraykol_ofy" },
-    { name: "Atabek Saburov", username: "saburov_atabek", fixedKey: "atabek_saburov" },
-    { name: "Nurbek Tajibayev", username: "nurbek_tajibayev" },
-    { name: "Jasur Urazbaev", username: "jasururazbaev" },
-    { name: "Nilufar Muxammedova", username: "nilufarrmuxammedova" },
-    { name: "Atabek", username: "atabek", fixedKey: "atabek_15" }
+    { name: "Aijamal", username: "aijamal", fixedKey: "aijamal" },
+    { name: "Elbek Jumabekov", username: "elbek_jumabekov", fixedKey: "elbek_jumabekov" },
+    { name: "Makhsud Kalbayev", username: "kalbayev_makhsud_kurbonbaevich", fixedKey: "kalbayev_makhsud_kurbonbaevich" },
+    { name: "Timur Daryabayev", username: "daryabayev_timur", fixedKey: "daryabayev_timur" },
+    { name: "Ali Jumamuratov", username: "ali_jumamuratov", fixedKey: "ali_jumamuratov" },
+    { name: "Baxodir", username: "baxodir_6694", fixedKey: "baxodir_6694" },
+    { name: "Sherzod Niyazimbetov", username: "sherzod_niyazimbetov", fixedKey: "sherzod_niyazimbetov" },
+    { name: "Tilekles Mubarekov", username: "tileklesmubarekov", fixedKey: "tileklesmubarekov" },
+    { name: "Qurbaniyazov Qayrat", username: "qurbaniyazovqayrat", fixedKey: "qurbaniyazovqayrat" },
+    { name: "Ergash Jumaniyazov", username: "jumaniyazovergash", fixedKey: "jumaniyazovergash" },
+    { name: "Saraykol OFY", username: "taxiyatosh_tumani_saraykol_ofy", fixedKey: "taxiyatosh_tumani_saraykol_ofy" },
+    { name: "Atabek Saburov", username: "saburov_atabek", fixedKey: "saburov_atabek" },
+    { name: "Nurbek Tajibayev", username: "nurbek_tajibayev", fixedKey: "nurbek_tajibayev" },
+    { name: "Jasur Urazbaev", username: "jasururazbaev", fixedKey: "jasururazbaev" },
+    { name: "Nilufar Muxammedova", username: "nilufarrmuxammedova", fixedKey: "nilufarrmuxammedova" },
+    { name: "Atabek", username: "atabek", fixedKey: "atabek_16" }
 ];
 
 const readDB = () => {
@@ -113,9 +114,8 @@ function generateUserList(taskUsers, taskScreenshots = {}) {
         count++;
     }
 
-    if (Object.values(taskUsers)[0]?.requiredScreenshots) {
-        userList += `\n📊 <b>Умумий юборилган скриншотлар:</b> ${totalScreenshots} та`;
-    }
+    // Умумий скриншотлар сонини чиқариш (ҳамма топшириқлар учун ишлайди)
+    userList += `\n📊 <b>Умумий юборилган скриншотлар:</b> ${totalScreenshots} та`;
 
     return userList;
 }
@@ -136,6 +136,9 @@ const addScore = (username, name, points, isCompleted = false) => {
     writeDB(db);
 };
 
+// ==========================================
+// АДМИН ПАНЕЛЬ ЛИЧКАДА
+// ==========================================
 bot.command('admin', async (ctx) => {
     if (ctx.chat.type !== 'private') return ctx.reply("Бу буйруқ фақат ботнинг шахсий чатида (личкада) ишлайди.");
 
@@ -157,6 +160,90 @@ bot.command('admin', async (ctx) => {
     });
 });
 
+bot.action(/^adm_task_(.+)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const db = readDB();
+    const task = db.tasks[taskId];
+
+    if (!task) return ctx.answerCbQuery("Топшириқ топилмади.", { show_alert: true });
+
+    let buttons = [];
+    for (const uKey in task.users) {
+        const u = task.users[uKey];
+        const count = (db.screenshots[taskId]?.[uKey] || []).length;
+        buttons.push([{ text: `👤 ${u.name} (${count} та скриншот)`, callback_data: `adm_user_${taskId}_${uKey}` }]);
+    }
+
+    await ctx.editMessageText(`📌 <b>Топшириқ:</b> ${task.text}\n\nИштирокчилардан бирини танланг:`, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: buttons }
+    });
+});
+
+bot.action(/^adm_user_(.+)_(.+)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const userKey = ctx.match[2];
+    const db = readDB();
+    const task = db.tasks[taskId];
+    const userFiles = db.screenshots[taskId]?.[userKey] || [];
+    const uObj = task.users[userKey];
+
+    if (!uObj) {
+        return ctx.answerCbQuery("Фойдаланувчи топилмади.", { show_alert: true });
+    }
+
+    if (userFiles.length === 0) {
+        return ctx.answerCbQuery("Бу фойдаланувчи ҳали скриншот юбормаган.", { show_alert: true });
+    }
+
+    await ctx.reply(`👤 <b>${uObj.name}</b> томонидан юборилган скриншотлар (${userFiles.length} та):\n\nЮклаб олиш учун қуйидаги тугмани босинг:`, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "📦 ZIP архив қилиб юклаб олиш", callback_data: `zip_${taskId}_${userKey}` }]
+            ]
+        }
+    });
+});
+
+bot.action(/^zip_(.+)_(.+)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const userKey = ctx.match[2];
+    const db = readDB();
+    const userFiles = db.screenshots[taskId]?.[userKey] || [];
+
+    if (userFiles.length === 0) return ctx.answerCbQuery("Расмлар топилмади.", { show_alert: true });
+
+    await ctx.answerCbQuery("📦 Архив тайёрланмоқда, илтимос кутиб туринг...");
+
+    try {
+        const archivePath = path.join(__dirname, `screenshots_${userKey}.zip`);
+        const output = fs.createWriteStream(archivePath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        archive.pipe(output);
+
+        for (let i = 0; i < userFiles.length; i++) {
+            const fileId = userFiles[i];
+            const fileLink = await ctx.telegram.getFileLink(fileId);
+            const response = await fetch(fileLink.href);
+            const buffer = Buffer.from(await response.arrayBuffer());
+            archive.append(buffer, { name: `screenshot_${i + 1}.jpg` });
+        }
+
+        await archive.finalize();
+
+        await ctx.replyWithDocument({ source: archivePath, filename: `screenshots_${userKey}.zip` });
+        
+        setTimeout(() => {
+            if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath);
+        }, 10000);
+
+    } catch (err) {
+        ctx.reply("❌ Архив қилишда хатолик юз берди.");
+    }
+});
+
 bot.on('message', async (ctx) => {
     if (ctx.from) {
         const db = readDB();
@@ -170,6 +257,7 @@ bot.on('message', async (ctx) => {
 
     const isPrivate = ctx.chat.type === 'private';
 
+    // ЛИЧКАДА СКРИНШОТНИ ҚАБУЛ ҚИЛИШ МАНТИҒИ
     if (isPrivate) {
         if (ctx.message.photo || ctx.message.document) {
             const db = readDB();
@@ -195,7 +283,7 @@ bot.on('message', async (ctx) => {
             }
 
             if (!targetTaskId) {
-                return ctx.reply("Ҳозирча сиз учун скриншот талаб этиладиган очиқ топшириқ йўқ.");
+                return ctx.reply("Ҳозирча сиз учун скриншот талаб қилинадиган очиқ топшириқ йўқ.");
             }
 
             const task = db.tasks[targetTaskId];
@@ -235,7 +323,7 @@ bot.on('message', async (ctx) => {
         return;
     }
 
-    // 1. ТОПШИРИҚҚА REPLY ҚИЛИБ '+' ЁКИ '-' ЁЗГАНДА ҲОЛАТНИ ЎЗГАРТИРИШ
+    // ГУРУҲДАГО ҲАРАКАТЛАР (REPLY ОРҚАЛИ БЕЛГИЛАШ)
     if (ctx.message.reply_to_message && (ctx.message.text || ctx.message.caption)) {
         const replyText = (ctx.message.text || ctx.message.caption || '').trim();
         const isPlus = replyText.startsWith('+');
@@ -243,11 +331,8 @@ bot.on('message', async (ctx) => {
 
         if (isPlus || isMinus) {
             const adminCheck = await isAdmin(ctx);
-            if (!adminCheck) {
-                return; // Админ бўлмаса ҳеч нарса қилмайди
-            }
+            if (!adminCheck) return;
 
-            // Айнан ўша реплай қилинган хабарнинг ID си орқали топшириқни топамизки, бу бир нечта топшириқ бўлганда ҳам адашмайди
             const taskId = `${ctx.chat.id}_${ctx.message.reply_to_message.message_id}`;
             const db = readDB();
             let task = db.tasks[taskId];
@@ -257,7 +342,6 @@ bot.on('message', async (ctx) => {
                 const repliedUser = ctx.message.reply_to_message.from;
                 const repliedUsername = repliedUser && repliedUser.username ? repliedUser.username.toLowerCase() : null;
 
-                // Хабар эгасининг username ёки исми бўйича базадан топамизки, бу 100% аниқ ишлайди
                 const mentionMatch = replyText.match(/@([a-zA-Z0-9_]+)/);
                 let searchUsername = mentionMatch ? mentionMatch[1].toLowerCase() : repliedUsername;
 
@@ -272,7 +356,6 @@ bot.on('message', async (ctx) => {
                 }
 
                 if (!targetKey && repliedUser) {
-                    // Агар username бўлмаса, исми ёки ID си бўйича текширамиз
                     for (const key in task.users) {
                         const u = task.users[key];
                         if (key === repliedUser.id.toString() || u.name.toLowerCase().includes(repliedUser.first_name.toLowerCase())) {
@@ -321,7 +404,7 @@ bot.on('message', async (ctx) => {
         }
     }
 
-    // 2. ЯНГИ ТОПШИРИҚ БЕРИШ
+    // ЯНГИ ТОПШИРИҚ БЕРИШ
     let text = ctx.message.text || ctx.message.caption || '';
     let isCommand = text.toLowerCase().startsWith('/topshiriq') || text.toLowerCase().startsWith('/vazifa') || text.toLowerCase().startsWith('/skrinshot') || text.toLowerCase().startsWith('/ss');
     
@@ -375,7 +458,7 @@ bot.on('message', async (ctx) => {
 
         let taskUsers = {};
         DEFAULT_USERS.forEach((usr) => {
-            const uniqueKey = usr.fixedKey || (usr.username ? usr.username.toLowerCase() : usr.name);
+            const uniqueKey = usr.fixedKey;
             taskUsers[uniqueKey] = {
                 name: usr.name,
                 username: usr.username,
