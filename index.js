@@ -3,22 +3,69 @@ const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 
 // ==========================================
 // SOZLAMALAR
 // ==========================================
 const PORT = process.env.PORT || 3000;
 // Render avtomatik RENDER_EXTERNAL_URL beradi (masalan https://mening-botim.onrender.com)
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || '';
+const SELF_URL = (process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || '').replace(/\/+$/, '');
 // Admin Telegram ID lari, vergul bilan: ADMIN_IDS=12345,67890
 const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+// WEBHOOK rejimi: Telegram xabarlarni to'g'ridan-to'g'ri serverga yuboradi.
+// Servis uxlab qolgan bo'lsa ham, Telegram so'rovi uni uyg'otadi. Ikki nusxa to'qnashuvi (409) ham bo'lmaydi.
+// Mahalliy ishga tushirishda (SELF_URL yo'q) yoki USE_POLLING=1 bo'lsa, oddiy polling ishlatiladi.
+const USE_WEBHOOK = Boolean(SELF_URL) && process.env.USE_POLLING !== '1';
+const hashOf = (s) => crypto.createHash('sha256').update(`${process.env.BOT_TOKEN}:${s}`).digest('hex');
+const HOOK_PATH = `/tg/${hashOf('path').slice(0, 32)}`;
+const HOOK_SECRET = hashOf('secret').slice(0, 48);
+
+const startedAt = Date.now();
+let lastUpdateAt = null;
+let updateCount = 0;
+let updateQueue = Promise.resolve(); // yangilanishlar ketma-ket qayta ishlanadi (polling'dagidek)
+let markReady;
+const ready = new Promise((r) => { markReady = r; }); // baza yuklanmaguncha yangilanishlar kutadi
 
 // ==========================================
 // HTTP SERVER + O'ZINI UYG'OTIB TURISH (Render bepul tarif uchun)
 // ==========================================
 http.createServer((req, res) => {
+    if (USE_WEBHOOK && req.method === 'POST' && req.url === HOOK_PATH) {
+        if (req.headers['x-telegram-bot-api-secret-token'] !== HOOK_SECRET) {
+            res.writeHead(403);
+            return res.end();
+        }
+        const chunks = [];
+        let size = 0;
+        req.on('data', (c) => {
+            size += c.length;
+            if (size > 2 * 1024 * 1024) return req.destroy();
+            chunks.push(c);
+        });
+        req.on('end', async () => {
+            let update;
+            try {
+                update = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            } catch (e) {
+                res.writeHead(400);
+                return res.end();
+            }
+            await ready; // baza tayyor bo'lgach javob beramiz
+            lastUpdateAt = Date.now();
+            updateCount++;
+            updateQueue = updateQueue
+                .then(() => bot.handleUpdate(update))
+                .catch((e) => console.error('Yangilanishni qayta ishlashda xato:', e.message));
+            res.writeHead(200);
+            res.end('ok');
+        });
+        return;
+    }
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is running and alive!\n');
+    res.end(`Bot is running and alive!\nrejim: ${USE_WEBHOOK ? 'webhook' : 'polling'}\nishlagan vaqti: ${Math.round((Date.now() - startedAt) / 60000)} daqiqa\nyangilanishlar: ${updateCount}\n`);
 }).listen(PORT, () => {
     console.log(`Server is listening on port ${PORT}`);
 });
@@ -56,8 +103,10 @@ async function initDB() {
         const { MongoClient } = require('mongodb');
         const client = new MongoClient(process.env.MONGODB_URI);
         await client.connect();
-        col = client.db(process.env.MONGODB_DB || 'topshiriq_bot').collection('state');
-        const doc = await col.findOne({ _id: 'main' });
+        // col faqat baza muvaffaqiyatli o'qilgandan keyin o'rnatiladi (bo'sh holat bazani ustidan yozib yubormasligi uchun)
+        const candidate = client.db(process.env.MONGODB_DB || 'topshiriq_bot').collection('state');
+        const doc = await candidate.findOne({ _id: 'main' });
+        col = candidate;
         if (doc) {
             const { _id, ...rest } = doc;
             db = { ...db, ...rest };
@@ -885,15 +934,60 @@ bot.catch((err, ctx) => {
 // ==========================================
 // ISHGA TUSHIRISH
 // ==========================================
-(async () => {
-    await initDB();
-    bot.launch({ dropPendingUpdates: false }, () => console.log('Bot muvaffaqiyatli ishga tushdi...'))
-        .catch((e) => { console.error('Bot ishga tushmadi:', e.message); process.exit(1); });
-})();
+async function initDBWithRetry(max = 5) {
+    for (let i = 1; i <= max; i++) {
+        try {
+            await initDB();
+            return;
+        } catch (e) {
+            console.error(`Bazaga ulanishda xato (${i}/${max}):`, e.message);
+            if (i === max) throw e;
+            await new Promise((r) => setTimeout(r, 3000 * i));
+        }
+    }
+}
+
+async function start() {
+    await initDBWithRetry();
+
+    if (USE_WEBHOOK) {
+        bot.botInfo = await bot.telegram.getMe();
+        markReady(); // kutib turgan yangilanishlar endi qayta ishlanadi
+        await bot.telegram.setWebhook(`${SELF_URL}${HOOK_PATH}`, {
+            secret_token: HOOK_SECRET,
+            max_connections: 1,
+            drop_pending_updates: false
+        });
+        console.log(`Webhook o'rnatildi: ${SELF_URL}/tg/... (@${bot.botInfo.username})`);
+        console.log('Bot muvaffaqiyatli ishga tushdi (webhook)...');
+    } else {
+        markReady();
+        bot.launch({ dropPendingUpdates: false }, () => console.log('Bot muvaffaqiyatli ishga tushdi (polling)...'))
+            .catch((e) => { console.error('Bot ishga tushmadi:', e.message); process.exit(1); });
+    }
+}
+
+start().catch((e) => {
+    console.error('Ishga tushirishda xato:', e.message);
+    process.exit(1);
+});
+
+// Har 30 daqiqada "tirikman" yozuvi: logda sukunat bo'lsa, bu haqiqiy muammo ekanini bildiradi
+setInterval(() => {
+    const last = lastUpdateAt ? new Date(lastUpdateAt).toISOString() : 'hali yo\'q';
+    console.log(`Tirik | rejim: ${USE_WEBHOOK ? 'webhook' : 'polling'} | yangilanishlar: ${updateCount} | oxirgisi: ${last}`);
+}, 30 * 60 * 1000);
+
+process.on('unhandledRejection', (r) => console.error('unhandledRejection:', (r && r.message) || r));
+process.on('uncaughtException', async (e) => {
+    console.error('uncaughtException:', (e && e.message) || e);
+    try { await flushNow(); } catch (err) {}
+    process.exit(1); // Render o'zi qayta ishga tushiradi
+});
 
 const shutdown = async (sig) => {
     try { await flushNow(); } catch (e) { console.error(e.message); }
-    try { bot.stop(sig); } catch (e) {}
+    try { if (!USE_WEBHOOK) bot.stop(sig); } catch (e) {}
     process.exit(0);
 };
 process.once('SIGINT', () => shutdown('SIGINT'));
