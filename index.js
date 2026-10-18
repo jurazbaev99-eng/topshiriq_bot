@@ -398,6 +398,80 @@ bot.action(/^pk:(\d+)$/, async (ctx) => {
 });
 
 // ==========================================
+// ТОПШИРИҚНИ ПАСТГА ТУШИРИШ (/up, /qayta)
+// Статуслар ва скриншотлар сақланади, фақат хабар чат охирига қайта жойланади
+// ==========================================
+async function bumpTask(oldTaskId) {
+    const task = db.tasks[oldTaskId];
+    const text = renderTaskText(oldTaskId);
+    const extra = { parse_mode: 'HTML', reply_markup: taskKeyboard(task) };
+
+    let sent;
+    if (task.hasMedia) {
+        extra.caption = text;
+        sent = await bot.telegram.copyMessage(task.chatId, task.chatId, task.messageId, extra);
+    } else {
+        sent = await bot.telegram.sendMessage(task.chatId, text, extra);
+    }
+
+    const oldMsgId = task.messageId;
+    const newTaskId = `${task.chatId}_${sent.message_id}`;
+    task.messageId = sent.message_id;
+    db.tasks[newTaskId] = task;
+    delete db.tasks[oldTaskId];
+    if (db.screenshots[oldTaskId]) {
+        db.screenshots[newTaskId] = db.screenshots[oldTaskId];
+        delete db.screenshots[oldTaskId];
+    }
+    writeDB();
+
+    await bot.telegram.deleteMessage(task.chatId, oldMsgId).catch(() => {});
+}
+
+bot.command(['up', 'qayta'], async (ctx) => {
+    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ гуруҳда ишлайди.");
+
+    if (!(await isGroupAdmin(ctx))) {
+        return ctx.deleteMessage().catch(() => {});
+    }
+
+    let oldTaskId = null;
+    const rep = ctx.message.reply_to_message;
+
+    if (rep) {
+        const id = `${ctx.chat.id}_${rep.message_id}`;
+        if (db.tasks[id]) {
+            if (db.tasks[id].status !== 'open') {
+                await ctx.deleteMessage().catch(() => {});
+                return ctx.reply("Бу топшириқ ёпилган.");
+            }
+            oldTaskId = id;
+        }
+    }
+
+    // Reply бўлмаса — шу гуруҳдаги энг сўнгги очиқ топшириқ
+    if (!oldTaskId) {
+        const open = Object.keys(db.tasks)
+            .filter((id) => db.tasks[id].chatId === ctx.chat.id && db.tasks[id].status === 'open')
+            .sort((a, b) => db.tasks[b].sid - db.tasks[a].sid);
+        oldTaskId = open[0] || null;
+    }
+
+    if (!oldTaskId) {
+        await ctx.deleteMessage().catch(() => {});
+        return ctx.reply("Бу гуруҳда очиқ топшириқ топилмади.");
+    }
+
+    try {
+        await bumpTask(oldTaskId);
+    } catch (e) {
+        console.error('Пастга туширишда хато:', e.message);
+        await ctx.reply("Топшириқни қайта жойлаб бўлмади. Эски хабар ўчирилган бўлиши мумкин.");
+    }
+    await ctx.deleteMessage().catch(() => {});
+});
+
+// ==========================================
 // ХАБАРЛАР
 // ==========================================
 bot.on('message', async (ctx) => {
