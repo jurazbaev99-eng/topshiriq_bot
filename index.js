@@ -35,11 +35,11 @@ if (SELF_URL) {
 // MA'LUMOTLAR BAZASI (xotirada + MongoDB yoki fayl)
 // ==========================================
 const dbPath = path.join(__dirname, 'database.json');
-let db = { tasks: {}, stats: {}, screenshots: {}, userChatIds: {}, counter: 0 };
+let db = { tasks: {}, stats: {}, screenshots: {}, userChatIds: {}, members: {}, ignored: {}, counter: 0 };
 let col = null; // MongoDB collection (MONGODB_URI bo'lsa)
 
 function normalizeDB() {
-    ['tasks', 'stats', 'screenshots', 'userChatIds'].forEach((k) => { if (!db[k]) db[k] = {}; });
+    ['tasks', 'stats', 'screenshots', 'userChatIds', 'members', 'ignored'].forEach((k) => { if (!db[k]) db[k] = {}; });
     if (!db.counter) db.counter = 0;
     for (const id in db.tasks) {
         const t = db.tasks[id];
@@ -133,6 +133,7 @@ function matchKey(task, userId, username) {
     for (const key in task.users) {
         const u = task.users[key];
         if (key === userId) return key;
+        if (u.id && String(u.id) === userId) return key;
         if (username && u.username && u.username.toLowerCase() === username) return key;
     }
     return null;
@@ -474,6 +475,147 @@ bot.command(['up', 'qayta'], async (ctx) => {
 // ==========================================
 // ХАБАРЛАР
 // ==========================================
+// ==========================================
+// ИШТИРОКЧИЛАР РЎЙХАТИ (ҳар гуруҳ учун базада сақланади)
+// ==========================================
+function getRoster(chatId) {
+    if (!db.members) db.members = {};
+    if (!db.members[chatId]) {
+        const r = {};
+        DEFAULT_USERS.forEach((u) => { r[u.fixedKey] = { name: u.name, username: u.username }; });
+        db.members[chatId] = r;
+        writeDB();
+    }
+    return db.members[chatId];
+}
+
+function getIgnored(chatId) {
+    if (!db.ignored) db.ignored = {};
+    if (!db.ignored[chatId]) db.ignored[chatId] = {};
+    return db.ignored[chatId];
+}
+
+// Одамни рўйхатга қўшади/боғлайди. force=true бўлса (масалан, "Танишдим" босганда) админни ҳам қўшади.
+async function trackMember(chatId, user, force = false) {
+    if (!user || user.is_bot || user.id === 777000) return;
+    const roster = getRoster(chatId);
+    const ign = getIgnored(chatId);
+    const uid = String(user.id);
+    const uname = user.username ? user.username.toLowerCase() : null;
+
+    for (const key in roster) {
+        const m = roster[key];
+        if (String(m.id) === uid || key === uid || (uname && m.username && m.username.toLowerCase() === uname)) {
+            if (!m.id) { m.id = user.id; writeDB(); }
+            return;
+        }
+    }
+
+    if (force) {
+        delete ign[uid];
+        if (uname) delete ign[uname];
+    } else {
+        if (ign[uid] || (uname && ign[uname])) return;
+        try {
+            const cm = await bot.telegram.getChatMember(chatId, user.id);
+            if (['creator', 'administrator'].includes(cm.status)) {
+                ign[uid] = true;
+                writeDB();
+                return;
+            }
+        } catch (e) {
+            return;
+        }
+    }
+
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || uname || uid;
+    roster[uname || uid] = { name, username: uname, id: user.id };
+    writeDB();
+}
+
+bot.on('new_chat_members', async (ctx) => {
+    for (const u of ctx.message.new_chat_members) await trackMember(ctx.chat.id, u);
+});
+
+bot.on('left_chat_member', async (ctx) => {
+    const u = ctx.message.left_chat_member;
+    if (!u || u.is_bot) return;
+    const roster = getRoster(ctx.chat.id);
+    const ign = getIgnored(ctx.chat.id);
+    const uid = String(u.id);
+    const uname = u.username ? u.username.toLowerCase() : null;
+    const key = Object.keys(roster).find((k) =>
+        String(roster[k].id) === uid || k === uid || (uname && (roster[k].username || '').toLowerCase() === uname));
+    if (key) {
+        delete roster[key];
+        ign[uid] = true;
+        if (uname) ign[uname] = true;
+        writeDB();
+    }
+});
+
+bot.command('royxat', async (ctx) => {
+    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ гуруҳда ишлайди.");
+    if (!(await isGroupAdmin(ctx))) return ctx.deleteMessage().catch(() => {});
+    const roster = getRoster(ctx.chat.id);
+    const keys = Object.keys(roster);
+    const lines = keys.map((k, i) => {
+        const m = roster[k];
+        return `${i + 1}. ${esc(m.name)}${m.username ? ` — <code>${esc(m.username)}</code>` : ''}`;
+    });
+    await ctx.reply(`👥 <b>Иштирокчилар рўйхати (${keys.length} киши):</b>\n\n${lines.join('\n')}\n\nЎчириш: /ochir рақам ёки /ochir username\nҚўшиш: /qosh @username Исм Фамилия`, { parse_mode: 'HTML' });
+    await ctx.deleteMessage().catch(() => {});
+});
+
+bot.command('qosh', async (ctx) => {
+    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ гуруҳда ишлайди.");
+    if (!(await isGroupAdmin(ctx))) return ctx.deleteMessage().catch(() => {});
+
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    const m = (args[0] || '').match(/^@?([a-zA-Z0-9_]{3,})$/);
+    if (!m) return ctx.reply("Фойдаланиш: /qosh @username Исм Фамилия");
+
+    const uname = m[1].toLowerCase();
+    const name = args.slice(1).join(' ') || m[1];
+    const roster = getRoster(ctx.chat.id);
+    delete getIgnored(ctx.chat.id)[uname];
+
+    const existing = Object.keys(roster).find((k) => (roster[k].username || '').toLowerCase() === uname);
+    if (existing) roster[existing].name = name;
+    else roster[uname] = { name, username: uname };
+    writeDB();
+
+    await ctx.reply(`✅ ${esc(name)} (<code>${esc(uname)}</code>) рўйхатга қўшилди. Рўйхатда ${Object.keys(roster).length} киши. Кейинги топшириқлардан бошлаб чиқади.`, { parse_mode: 'HTML' });
+    await ctx.deleteMessage().catch(() => {});
+});
+
+bot.command('ochir', async (ctx) => {
+    if (ctx.chat.type === 'private') return ctx.reply("Бу буйруқ гуруҳда ишлайди.");
+    if (!(await isGroupAdmin(ctx))) return ctx.deleteMessage().catch(() => {});
+
+    const arg = (ctx.message.text.split(/\s+/)[1] || '').trim();
+    const roster = getRoster(ctx.chat.id);
+    const keys = Object.keys(roster);
+    let key = null;
+    if (/^\d+$/.test(arg)) {
+        key = keys[parseInt(arg) - 1];
+    } else if (arg) {
+        const un = arg.replace(/^@/, '').toLowerCase();
+        key = keys.find((k) => (roster[k].username || '').toLowerCase() === un);
+    }
+    if (!key) return ctx.reply("Фойдаланиш: /ochir рақам (рўйхатдаги) ёки /ochir username");
+
+    const m = roster[key];
+    delete roster[key];
+    const ign = getIgnored(ctx.chat.id);
+    if (m.id) ign[String(m.id)] = true;
+    if (m.username) ign[m.username.toLowerCase()] = true;
+    writeDB();
+
+    await ctx.reply(`🗑 ${esc(m.name)} рўйхатдан ўчирилди (кейинги топшириқлардан). Қолди: ${Object.keys(roster).length} киши.`, { parse_mode: 'HTML' });
+    await ctx.deleteMessage().catch(() => {});
+});
+
 bot.on('message', async (ctx) => {
     const isPrivate = ctx.chat.type === 'private';
 
@@ -522,6 +664,9 @@ bot.on('message', async (ctx) => {
         });
         return ctx.reply("Бу скриншот қайси топшириққа тегишли?", { reply_markup: { inline_keyboard: buttons } });
     }
+
+    // ---------- ГУРУҲ: ёзган одамни рўйхатга олиш ----------
+    if (ctx.from && !ctx.message.sender_chat) await trackMember(ctx.chat.id, ctx.from);
 
     // ---------- ГУРУҲ: reply орқали +/- ----------
     const replyMsg = ctx.message.reply_to_message;
@@ -619,11 +764,14 @@ bot.on('message', async (ctx) => {
 
     const adminMention = `<a href="tg://user?id=${ctx.from.id}">${esc(ctx.from.first_name)}</a>`;
 
+    const roster = getRoster(ctx.chat.id);
     const taskUsers = {};
-    DEFAULT_USERS.forEach((usr) => {
-        taskUsers[usr.fixedKey] = {
-            name: usr.name,
-            username: usr.username,
+    Object.keys(roster).forEach((k) => {
+        const m = roster[k];
+        taskUsers[k] = {
+            name: m.name,
+            username: m.username || null,
+            id: m.id || null,
             status: 'tanishmadi',
             requiredScreenshots: requiredScreenshots > 0 ? requiredScreenshots : null
         };
@@ -680,6 +828,9 @@ bot.action('tanishdim', async (ctx) => {
     const username = ctx.from.username ? ctx.from.username.toLowerCase() : null;
     const name = ctx.from.first_name;
 
+    // Танишдим босган одам доимий рўйхатга ҳам қўшилади (кейинги топшириқларда ҳам чиқади)
+    await trackMember(ctx.chat.id, ctx.from, true);
+
     let key = matchKey(task, userId, username);
 
     if (!key) {
@@ -687,6 +838,7 @@ bot.action('tanishdim', async (ctx) => {
         task.users[key] = {
             name,
             username,
+            id: ctx.from.id,
             status: task.requiredScreenshots ? 'tanishmadi' : 'tanishdi',
             requiredScreenshots: task.requiredScreenshots || null
         };
